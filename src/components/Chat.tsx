@@ -13,6 +13,8 @@ import { CapabilityPills } from "./CapabilityPills";
 import { Thinking } from "./Thinking";
 import { ToolCard } from "./ToolCard";
 import { Composer } from "./Composer";
+import { ArtifactPanel } from "./ArtifactPanel";
+import { useArtifactPanel } from "./ArtifactPanelContext";
 import { cn } from "@/lib/cn";
 import type {
   Assistant, ChatMessage, ModelInfo, MsgAttachment, Session, ToolPublic,
@@ -32,11 +34,13 @@ const Turn = memo(function Turn({
   streaming = false,
   assistant,
   onRedo,
+  sessionId,
 }: {
   m: ChatMessage;
   streaming?: boolean;
   assistant: Assistant;
   onRedo?: () => void;
+  sessionId?: string | null;
 }) {
   if (m.role === "tool") {
     return (
@@ -118,7 +122,11 @@ const Turn = memo(function Turn({
 
         {m.content ? (
           <div className={streaming ? "caret" : ""}>
-            <Markdown text={m.content} />
+            <Markdown
+              text={m.content}
+              sessionId={sessionId}
+              assistantId={assistant.id}
+            />
           </div>
         ) : streaming && !m.thinking ? (
           <div className="font-serif text-[14px] italic text-fg-subtle">
@@ -147,6 +155,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
   const localSessionRef = useRef<string | null>(null);
+  const { openId: artifactOpenId } = useArtifactPanel();
 
   const enabledTools = toolOverride ?? assistant?.enabledTools ?? [];
   const activeModel = assistant?.model ?? "";
@@ -773,6 +782,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                     <Turn
                       m={m}
                       assistant={assistant}
+                      sessionId={sessionId}
                       streaming={
                         streaming &&
                         i === messages.length - 1 &&
@@ -791,7 +801,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             </div>
           </div>
 
-          {showTools && (
+          {artifactOpenId ? (
+            <ArtifactPanel />
+          ) : showTools && (
             <aside className="w-72 overflow-y-auto border-l border-border bg-bg-elev p-3">
               <div className="byline mb-2">tools</div>
               {Object.entries(

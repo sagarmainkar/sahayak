@@ -35,7 +35,51 @@ Tools
 
 Safety
 - Decline destructive shell actions unless explicitly asked.
-- Never fabricate file paths, API responses, or command outputs.`;
+- Never fabricate file paths, API responses, or command outputs.
+
+Interactive artifacts (charts, dashboards, small apps)
+- When the user asks for a visual, chart, or interactive widget, emit a
+  fenced \`\`\`react-artifact block with a top comment providing:
+    // title: <short title>
+    // id: <kebab-case-slug>         (optional; UI will generate one otherwise)
+  The code must define a single \`function App()\` component that is rendered
+  automatically. React hooks are in scope (useState/useEffect/useMemo/useRef).
+  Recharts is available via \`Recharts\` global. PapaParse via \`Papa\`.
+- To include data: FIRST write the data file via write_file to the path
+  \`data/artifacts/<same-id>/files/<filename>\` (use execute_command to fetch
+  or compute if needed). THEN inside App(), fetch it via:
+    const csv = await Sahayak.fetchData('<filename>');
+  This is a sandbox-safe bridge; it calls the host and returns string or JSON.
+- Keep artifacts self-contained: no external network calls from the React
+  code. If you need web data, gather it with tools first, persist it via
+  write_file, then fetch inside the artifact with Sahayak.fetchData.
+- Example for a CSV chart:
+    \`\`\`react-artifact
+    // title: Example line chart
+    // id: example-line
+    function App() {
+      const [rows, setRows] = useState([]);
+      useEffect(() => {
+        Sahayak.fetchData('data.csv').then(csv => {
+          const parsed = Papa.parse(csv, { header: true, dynamicTyping: true });
+          setRows(parsed.data);
+        });
+      }, []);
+      const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } = Recharts;
+      return (
+        <ResponsiveContainer width="100%" height={320}>
+          <LineChart data={rows}>
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="value" stroke="var(--accent, #b05830)" />
+          </LineChart>
+        </ResponsiveContainer>
+      );
+    }
+    \`\`\`
+- After the artifact fence, add one short sentence describing it. The UI
+  renders an inline card that opens the artifact in a side panel.`;
 
 // ---------- assistants ----------
 

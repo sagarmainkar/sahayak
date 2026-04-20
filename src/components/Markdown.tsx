@@ -8,6 +8,7 @@ import { useTheme } from "next-themes";
 import { Check, Copy } from "lucide-react";
 import { LinkCard } from "./LinkCard";
 import { Carousel } from "./Carousel";
+import { ArtifactBlock } from "./ArtifactBlock";
 
 function CodeBlock({
   className,
@@ -88,7 +89,15 @@ function isUrlOnly(text: string): string | null {
   return s;
 }
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({
+  text,
+  sessionId,
+  assistantId,
+}: {
+  text: string;
+  sessionId?: string | null;
+  assistantId?: string | null;
+}) {
   return (
     <div className="prose">
       <ReactMarkdown
@@ -107,6 +116,27 @@ export function Markdown({ text }: { text: string }) {
                 .map((l) => l.trim())
                 .filter((l) => /^https?:\/\//.test(l));
               return <Carousel urls={urls} />;
+            }
+            const src = String(children);
+            const looksLikeArtifact =
+              lang === "react-artifact" ||
+              lang === "jsx-artifact" ||
+              lang === "artifact" ||
+              // `react`/`jsx`/`tsx` blocks are treated as artifacts when the
+              // model gives an explicit `// title:` header, OR when they
+              // define a React component (export default / function App).
+              ((lang === "react" || lang === "jsx" || lang === "tsx") &&
+                (/^\s*\/\/\s*(title|id)\s*:/m.test(src) ||
+                  /export\s+default\s+function/.test(src) ||
+                  /\bfunction\s+App\s*\(/.test(src)));
+            if (looksLikeArtifact) {
+              return (
+                <ArtifactBlock
+                  source={src}
+                  sessionId={sessionId}
+                  assistantId={assistantId}
+                />
+              );
             }
             return <CodeBlock className={className}>{children}</CodeBlock>;
           },

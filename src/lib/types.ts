@@ -54,3 +54,14 @@ export type Session = {
 };
 
 export type ToolPublic = { name: string; group: string; description: string };
+
+export type Artifact = {
+  id: string;
+  title: string;
+  sessionId: string | null;
+  assistantId: string | null;
+  source: string; // JSX source
+  createdAt: number;
+  updatedAt: number;
+};
+
