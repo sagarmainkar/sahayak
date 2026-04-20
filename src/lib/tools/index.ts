@@ -10,6 +10,7 @@ import {
 import { executeCommand } from "./shell";
 import { webSearch, webFetch } from "./web";
 import { gmailSearch, gmailHeaders, gmailBody, gmailThread } from "./gmail";
+import { artifactCreate, artifactWriteFile } from "./artifact";
 
 export const ALL_TOOLS: ToolSpec[] = [
   readFile,
@@ -25,6 +26,8 @@ export const ALL_TOOLS: ToolSpec[] = [
   gmailHeaders,
   gmailBody,
   gmailThread,
+  artifactCreate,
+  artifactWriteFile,
 ];
 
 export const TOOLS_BY_NAME = Object.fromEntries(

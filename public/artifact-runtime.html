@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Artifact</title>
+<style>
+  :root {
+    --bg: #faf6ef;
+    --bg-paper: #f6f1e5;
+    --fg: #1c1814;
+    --fg-muted: #5e5547;
+    --accent: #b05830;
+    --border: #e6dcc8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e0c0a;
+      --bg-paper: #14110c;
+      --fg: #ede7d8;
+      --fg-muted: #a69b83;
+      --accent: #d1895a;
+      --border: #2a2419;
+    }
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 14px;
+    overflow-x: hidden;
+  }
+  #root {
+    min-height: 100%;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+  .err {
+    padding: 16px;
+    border: 1px solid #ef4444;
+    background: rgba(239, 68, 68, 0.08);
+    color: #b91c1c;
+    border-radius: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+  .wait {
+    padding: 16px;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+</style>
+<!-- React 18 UMD — React 19 dropped official UMD builds.
+     Recharts 2.x and the artifact runtime work fine on 18. -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.15.4/umd/Recharts.js"></script>
+<script crossorigin src="https://unpkg.com/papaparse@5.5.3/papaparse.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.27.0/babel.min.js"></script>
+</head>
+<body>
+<div id="root"><div class="wait">waiting for artifact source…</div></div>
+
+<script>
+(function () {
+  var root = document.getElementById("root");
+  var React = window.React;
+  var ReactDOM = window.ReactDOM;
+
+  function showError(msg) {
+    root.innerHTML = "";
+    var el = document.createElement("div");
+    el.className = "err";
+    el.textContent = String(msg);
+    root.appendChild(el);
+    // Tell parent so it can mirror the error in the chat / toast later.
+    try {
+      parent.postMessage(
+        { sahayak: true, type: "error", message: String(msg) },
+        "*",
+      );
+    } catch (e) {}
+  }
+
+  window.addEventListener("error", function (ev) {
+    showError(
+      (ev.error && ev.error.stack) || ev.message || "unknown error",
+    );
+  });
+  window.addEventListener("unhandledrejection", function (ev) {
+    var r = ev.reason;
+    showError(
+      (r && r.stack) || (r && r.message) || String(r) || "unhandled rejection",
+    );
+  });
+
+  // Data-fetch bridge: artifact code calls Sahayak.fetchData(filename)
+  // which postMessages the parent and waits for a response.
+  var pending = {};
+  var reqId = 0;
+  window.Sahayak = {
+    fetchData: function (filename, opts) {
+      return new Promise(function (resolve, reject) {
+        var id = ++reqId;
+        pending[id] = { resolve: resolve, reject: reject };
+        parent.postMessage({
+          sahayak: true,
+          type: "fetch_data",
+          reqId: id,
+          filename: filename,
+          as: (opts && opts.as) || "auto",
+        }, "*");
+        setTimeout(function () {
+          if (pending[id]) {
+            delete pending[id];
+            reject(new Error("fetch timeout: " + filename));
+          }
+        }, 20000);
+      });
+    },
+  };
+
+  window.addEventListener("message", function (e) {
+    var d = e.data;
+    if (!d || !d.sahayak) return;
+
+    if (d.type === "render") {
+      try {
+        root.innerHTML = '<div class="wait">compiling…</div>';
+        var raw = String(d.source || "");
+        var src = raw;
+
+        // Globals we expose; maps package name → global object name.
+        var GLOBAL_MAP = {
+          "react": "React",
+          "react-dom": "ReactDOM",
+          "react-dom/client": "ReactDOM",
+          "recharts": "Recharts",
+          "papaparse": "Papa",
+        };
+
+        // Extract `import { A, B as C } from 'pkg'` and `import X from 'pkg'`
+        // into preludes. Handles multi-line imports too.
+        var preludes = [];
+        var importRe = /import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]\s*;?/g;
+        src = src.replace(importRe, function (_full, rawSpec, pkg) {
+          var target = GLOBAL_MAP[pkg] || null;
+          if (!target) return "";
+          var spec = rawSpec.replace(/\s+/g, " ").trim();
+          // shape A: default + optional named → `Foo, { bar, baz as b }`
+          var defaultMatch = spec.match(
+            /^([A-Za-z_$][\w$]*)\s*(?:,\s*\{([^}]*)\})?$/,
+          );
+          var namespaceMatch = spec.match(
+            /^\*\s+as\s+([A-Za-z_$][\w$]*)$/,
+          );
+          var namedOnly = spec.match(/^\{([^}]*)\}$/);
+          if (namespaceMatch) {
+            preludes.push("var " + namespaceMatch[1] + " = " + target + ";");
+          } else if (defaultMatch) {
+            if (defaultMatch[1] !== target) {
+              preludes.push(
+                "var " + defaultMatch[1] + " = " + target + ";",
+              );
+            }
+            if (defaultMatch[2]) {
+              preludes.push(
+                "var { " + defaultMatch[2].trim() + " } = " + target + ";",
+              );
+            }
+          } else if (namedOnly) {
+            preludes.push(
+              "var { " + namedOnly[1].trim() + " } = " + target + ";",
+            );
+          }
+          return "";
+        });
+        // side-effect imports: `import 'foo';`
+        src = src.replace(/import\s+['"][^'"]+['"]\s*;?/g, "");
+
+        // normalize `export default function X(){...}` → keep as X and alias
+        //    `export default X` → alias X as App
+        src = src.replace(
+          /export\s+default\s+function\s+([A-Za-z_$][\w$]*)/g,
+          "function $1",
+        );
+        src = src.replace(
+          /export\s+default\s+([A-Za-z_$][\w$]*)\s*;?/g,
+          "var __default = $1;",
+        );
+        src = src.replace(/^\s*export\s+/gm, "");
+
+        src = preludes.join("\n") + "\n" + src;
+
+        // 3. autodetect main component if no `function App()` defined.
+        //    Prefer: `function App`, else `__default`, else first PascalCase
+        //    top-level function / const.
+        var declaresApp = /function\s+App\s*\(/.test(src) ||
+          /(?:const|let|var)\s+App\s*=/.test(src);
+        var alias = "";
+        if (!declaresApp) {
+          var name = null;
+          if (/var\s+__default\b/.test(src)) name = "__default";
+          else {
+            var m =
+              src.match(/function\s+([A-Z][\w$]*)\s*\(/) ||
+              src.match(/(?:const|let|var)\s+([A-Z][\w$]*)\s*=/);
+            if (m) name = m[1];
+          }
+          if (name) alias = "\nvar App = " + name + ";\n";
+        }
+
+        var wrapped = [
+          "(function(){",
+          "  var useState = React.useState;",
+          "  var useEffect = React.useEffect;",
+          "  var useMemo = React.useMemo;",
+          "  var useCallback = React.useCallback;",
+          "  var useRef = React.useRef;",
+          "  var useReducer = React.useReducer;",
+          "  var Recharts = window.Recharts || {};",
+          "  var Papa = window.Papa;",
+          "  " + src,
+          alias,
+          "  if (typeof App === 'undefined') {",
+          "    throw new Error('No component found. Define `function App()` or `export default <YourComponent>`.');",
+          "  }",
+          // Inline error boundary so render-time errors show nicely.
+          "  class __SahayakBoundary extends React.Component {",
+          "    constructor(p){ super(p); this.state = { err: null }; }",
+          "    static getDerivedStateFromError(err){ return { err: err }; }",
+          "    componentDidCatch(err, info){",
+          "      var msg = (err && err.stack) ? err.stack : String(err);",
+          "      window.__sahayakBoundaryError = msg;",
+          "      try { parent.postMessage({ sahayak: true, type: 'error', message: msg }, '*'); } catch(e){}",
+          "    }",
+          "    render(){",
+          "      if (this.state.err) {",
+          "        return React.createElement('div', { className: 'err' },",
+          "          'Render error:\\n\\n' + ((this.state.err.stack) || this.state.err.message || String(this.state.err)));",
+          "      }",
+          "      return this.props.children;",
+          "    }",
+          "  }",
+          "  var target = document.getElementById('root');",
+          "  target.innerHTML = '';",
+          "  var r = ReactDOM.createRoot ? ReactDOM.createRoot(target) : null;",
+          "  var el = React.createElement(__SahayakBoundary, null, React.createElement(App));",
+          "  if (r) r.render(el); else ReactDOM.render(el, target);",
+          "})();",
+        ].join("\n");
+        var out = Babel.transform(wrapped, {
+          presets: ["react"],
+          plugins: [],
+          filename: "artifact.jsx",
+        });
+        // eslint-disable-next-line no-eval
+        (0, eval)(out.code);
+      } catch (e) {
+        showError(e && e.stack ? e.stack : e);
+      }
+    }
+
+    if (d.type === "fetch_data_response") {
+      var p = pending[d.reqId];
+      if (!p) return;
+      delete pending[d.reqId];
+      if (d.error) p.reject(new Error(d.error));
+      else p.resolve(d.payload);
+    }
+  });
+
+  // Let parent know we're ready
+  parent.postMessage({ sahayak: true, type: "ready" }, "*");
+})();
+</script>
+</body>
+</html>

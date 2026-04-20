@@ -9,15 +9,17 @@ import type { Artifact } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 export function ArtifactPanel() {
-  const { openId, close } = useArtifactPanel();
+  const { openId, refreshKey: externalRefreshKey, close } = useArtifactPanel();
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
+  const [localRefreshKey, setLocalRefreshKey] = useState(0);
+  const refreshKey = externalRefreshKey + localRefreshKey;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Load artifact
+  // Load artifact — refetches whenever openId or refreshKey changes
   useEffect(() => {
     if (!openId) {
       setArtifact(null);
@@ -25,10 +27,10 @@ export function ArtifactPanel() {
       setShowSource(false);
       return;
     }
-    fetch(`/api/artifacts/${openId}`)
+    fetch(`/api/artifacts/${openId}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: { artifact: Artifact }) => setArtifact(d.artifact));
-  }, [openId]);
+  }, [openId, refreshKey]);
 
   // Bridge: iframe → parent → /api/artifact-data
   useEffect(() => {
@@ -101,9 +103,14 @@ export function ArtifactPanel() {
 
   function reload() {
     setIframeReady(false);
+    setLocalRefreshKey((k) => k + 1); // refetch source from disk
     const f = iframeRef.current;
     if (!f) return;
-    f.src = f.src;
+    const src = f.src;
+    f.src = "about:blank";
+    requestAnimationFrame(() => {
+      if (iframeRef.current) iframeRef.current.src = src;
+    });
   }
 
   async function copySource() {

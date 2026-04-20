@@ -49,3 +49,8 @@ next-env.d.ts
 # editor
 .vscode/
 .idea/
+
+# stray artifact files written at repo root (should live under data/artifacts/)
+/artifact-*.html
+/artifact-*.jsx
+/artifact-*.tsx

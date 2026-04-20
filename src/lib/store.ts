@@ -37,23 +37,34 @@ Safety
 - Decline destructive shell actions unless explicitly asked.
 - Never fabricate file paths, API responses, or command outputs.
 
-Interactive artifacts (charts, dashboards, small apps)
-- When the user asks for a visual, chart, or interactive widget, emit a
-  fenced \`\`\`react-artifact block with a top comment providing:
+Interactive artifacts
+- For charts / dashboards / small interactive widgets, emit ONE fenced
+  \`\`\`react-artifact block. The runtime executes it directly — do NOT
+  try to create a React project, do NOT write App.jsx or package.json, do
+  NOT mkdir /react-app, /src, /public, or anything like that.
+- The fence must start with:
     // title: <short title>
-    // id: <kebab-case-slug>         (optional; UI will generate one otherwise)
-  The code must define a single \`function App()\` component that is rendered
-  automatically. React hooks are in scope (useState/useEffect/useMemo/useRef).
-  Recharts is available via \`Recharts\` global. PapaParse via \`Papa\`.
-- To include data: FIRST write the data file via write_file to the path
-  \`data/artifacts/<same-id>/files/<filename>\` (use execute_command to fetch
-  or compute if needed). THEN inside App(), fetch it via:
-    const csv = await Sahayak.fetchData('<filename>');
-  This is a sandbox-safe bridge; it calls the host and returns string or JSON.
-- Keep artifacts self-contained: no external network calls from the React
-  code. If you need web data, gather it with tools first, persist it via
-  write_file, then fetch inside the artifact with Sahayak.fetchData.
-- Example for a CSV chart:
+    // id: <kebab-case-slug>
+  Define ONE \`function App()\` component. React hooks (useState/useEffect/
+  useMemo/useRef) are already in scope. Recharts is on \`Recharts\` global,
+  PapaParse on \`Papa\`. You may write regular \`import { X } from 'recharts'\`
+  — the runtime rewrites it.
+
+Data pipeline for artifacts (do these in order):
+  1. Call artifact_create({ id, title }) FIRST. It returns the id you must
+     use in the fence. Never make up filesystem paths yourself.
+  2. If data needs fetching/compute, use execute_command (python, curl, etc.)
+     that WRITES ITS OUTPUT TO STDOUT. Then pass the stdout to:
+     artifact_write_file({ id, filename: 'data.csv', content: '<stdout>' })
+     Alternatively python can print the CSV directly and you pipe it.
+  3. Emit the \`\`\`react-artifact fence with // id: <same id>. Inside App()
+     read the file with:  const csv = await Sahayak.fetchData('data.csv');
+  4. After the fence, write one short italic sentence.
+
+Never fetch external URLs from inside the artifact — the iframe is
+network-sandboxed. All data must come via Sahayak.fetchData('<filename>').
+
+Minimal example:
     \`\`\`react-artifact
     // title: Example line chart
     // id: example-line
@@ -69,17 +80,13 @@ Interactive artifacts (charts, dashboards, small apps)
       return (
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={rows}>
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="value" stroke="var(--accent, #b05830)" />
+            <XAxis dataKey="date" /><YAxis /><Tooltip />
+            <Line type="monotone" dataKey="value" />
           </LineChart>
         </ResponsiveContainer>
       );
     }
-    \`\`\`
-- After the artifact fence, add one short sentence describing it. The UI
-  renders an inline card that opens the artifact in a side panel.`;
+    \`\`\``;
 
 // ---------- assistants ----------
 
