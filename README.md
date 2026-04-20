@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sahayak
 
-## Getting Started
+Local-first AI chat client for [Ollama](https://ollama.com). Built with Next.js 16, React 19, TypeScript, Tailwind 4.
 
-First, run the development server:
+## Features
+
+- **Assistants** — named personas with per-assistant system prompt, model, tool set, thinking effort
+- **Streaming chat** with tool-calling loop, reasoning (collapsed marginalia), tool-result cards (structured per tool)
+- **Context gauge** — live prompt-token bar, coloured by fill
+- **Compaction** — manual or auto summary of older turns
+- **Markdown** with Shiki syntax-highlighted code blocks, custom serif prose, tables, blockquotes
+- **Link previews** via `/api/unfurl` (OG metadata) — standalone URLs in replies unfurl to rich cards
+- **Images** — drag, paste, or pick; stored content-addressed in `data/uploads/`, tiny refs in JSONL
+- **Export** — per-session markdown dump with thinking, tool-calls, and results
+- **Regenerate** — ↺ on the last user message
+- **Themes** — three hand-designed styles (Correspondence / Terminal Scholar / Editorial), plus light/dark
+- **JSONL storage** — one file per session, inspectable with `cat | jq`
+
+## Stack
+
+- [Ollama](https://ollama.com) — local LLM runtime, served at `http://localhost:11434`
+- Next.js 16 App Router, Turbopack
+- Tailwind 4 (CSS-first tokens), `next-themes`, `lucide-react`
+- `react-markdown` + `remark-gfm`, Shiki for syntax highlighting
+- File-based persistence: JSON for assistants, JSONL for sessions, content-addressed uploads
+
+## Local tools exposed to the model
+
+- Filesystem: `read_file`, `write_file`, `list_directory`, `search_files`, `get_file_info`, `path_exists`
+- Shell: `execute_command`
+- Web: `web_search`, `web_fetch` (via Ollama hosted search API)
+- Gmail: wraps `gmail_agent.py` (external)
+
+## Running
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:9999
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Requires Ollama running locally with at least one tool-capable model pulled (e.g. `qwen3.5:9b`, `gemma4:26b`). An optional `OLLAMA_API_KEY` enables web search/fetch; Sahayak auto-picks it up from `~/.openclaw/credentials/ollama.json` if present.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Data layout
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+data/
+  assistants.json
+  sessions/<assistantId>/<sessionId>.jsonl
+  uploads/<sha256>.<ext>
+```
 
-## Learn More
+All gitignored.
 
-To learn more about Next.js, take a look at the following resources:
+## License
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT.

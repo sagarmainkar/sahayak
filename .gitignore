@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sahayak: user data (chats, assistants, uploaded images)
+/data
+
+# local screenshots
+/screenshots
+
+# editor
+.vscode/
+.idea/
