@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Save, Trash2, ArrowLeft } from "lucide-react";
+import { Save, Trash2, ArrowLeft, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import type { Assistant, ModelInfo, ToolPublic } from "@/lib/types";
@@ -34,6 +34,7 @@ export function AssistantEditor({
   const [form, setForm] = useState<Partial<Assistant>>(initial ?? DEFAULTS);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [tools, setTools] = useState<ToolPublic[]>([]);
+  const [defaultPrompt, setDefaultPrompt] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -46,7 +47,19 @@ export function AssistantEditor({
     fetch("/api/tools")
       .then((r) => r.json())
       .then((d: { tools: ToolPublic[] }) => setTools(d.tools));
+    fetch("/api/assistants/defaults")
+      .then((r) => r.json())
+      .then((d: { systemPrompt: string }) => setDefaultPrompt(d.systemPrompt));
   }, []);
+
+  function loadDefaultPrompt() {
+    const cur = (form.systemPrompt ?? "").trim();
+    if (cur && cur !== defaultPrompt) {
+      if (!confirm("Replace the current system prompt with the default?"))
+        return;
+    }
+    setForm((f) => ({ ...f, systemPrompt: defaultPrompt }));
+  }
 
   async function save() {
     setSaving(true);
@@ -213,7 +226,21 @@ export function AssistantEditor({
           </div>
         </Section>
 
-        <Section title="System prompt">
+        <Section
+          title="System prompt"
+          actions={
+            defaultPrompt ? (
+              <button
+                type="button"
+                onClick={loadDefaultPrompt}
+                className="flex items-center gap-1 rounded border border-border px-2 py-1 font-sans text-[10.5px] text-fg-muted hover:border-accent hover:text-fg"
+              >
+                <Wand2 className="h-3 w-3" />
+                Load default
+              </button>
+            ) : null
+          }
+        >
           <textarea
             value={form.systemPrompt ?? ""}
             onChange={(e) =>
@@ -223,6 +250,11 @@ export function AssistantEditor({
             className="w-full resize-y rounded border border-border bg-bg p-3 font-serif text-[14px] leading-[1.6] focus:border-accent focus:outline-none"
             placeholder="Describe this assistant's role, style, and constraints…"
           />
+          <p className="font-sans text-[10.5px] text-fg-subtle">
+            Use <span className="font-mono">Load default</span> as a
+            starting point, then customise. Artifact instructions are
+            injected per-turn via the composer toggle, not stored here.
+          </p>
         </Section>
 
         <Section
@@ -275,13 +307,18 @@ export function AssistantEditor({
 function Section({
   title,
   children,
+  actions,
 }: {
   title: string;
   children: React.ReactNode;
+  actions?: React.ReactNode;
 }) {
   return (
     <section className="rounded-lg border border-border bg-bg-elev p-5">
-      <h2 className="byline mb-4">{title}</h2>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="byline">{title}</h2>
+        {actions}
+      </div>
       <div className="space-y-4">{children}</div>
     </section>
   );

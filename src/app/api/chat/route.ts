@@ -1,6 +1,7 @@
 import { OLLAMA_URL } from "@/lib/ollama";
 import { TOOLS_BY_NAME, toolsForOllama } from "@/lib/tools";
 import { readUpload } from "@/lib/uploads";
+import { REACT_ARTIFACT_INSTRUCTIONS } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,6 +38,9 @@ type ChatRequest = {
   think?: boolean | "low" | "medium" | "high";
   enabledTools?: string[];
   maxToolTurns?: number;
+  /** When true, append REACT_ARTIFACT_INSTRUCTIONS to the system prompt
+   *  for this turn — the Composer toggle. */
+  artifactsEnabled?: boolean;
 };
 
 // Convert our client-shape messages to what Ollama wants.
@@ -84,16 +88,47 @@ function sse(controller: ReadableStreamDefaultController<Uint8Array>, obj: unkno
   controller.enqueue(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
 }
 
+const ARTIFACT_TOOLS = new Set(["artifact_create", "artifact_write_file"]);
+
+function injectArtifactInstructions(msgs: ClientMsg[]): ClientMsg[] {
+  const out = [...msgs];
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].role === "user") {
+      out[i] = {
+        ...out[i],
+        content:
+          `${out[i].content}\n\n---\n${REACT_ARTIFACT_INSTRUCTIONS}`.trim(),
+      };
+      return out;
+    }
+  }
+  return out; // no user message found (shouldn't happen) — pass through
+}
+
 export async function POST(req: Request) {
   const body = (await req.json()) as ChatRequest;
-  const enabled = body.enabledTools ?? [];
+  // When artifact mode is off, strip the artifact tools too — their
+  // descriptions/hints reference the react-artifact fence, which would
+  // otherwise leak the contract into the model regardless of the system
+  // prompt. The assistant's stored tool set is untouched.
+  const enabled = body.artifactsEnabled
+    ? (body.enabledTools ?? [])
+    : (body.enabledTools ?? []).filter((t) => !ARTIFACT_TOOLS.has(t));
   const toolDefs = enabled.length ? toolsForOllama(enabled) : [];
   const maxToolTurns = body.maxToolTurns ?? 8;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const dec = new TextDecoder();
-      const messages = await toOllamaMessages(body.messages, body.system);
+      // When artifact mode is on, append the react-artifact contract to the
+      // last user message (this turn's ask), not the system prompt. Keeps the
+      // assistant's stable behavior in `system` and the per-request directive
+      // co-located with the user's text. The client's persisted messages are
+      // untouched — augmentation lives only on the wire.
+      const clientMsgs = body.artifactsEnabled
+        ? injectArtifactInstructions(body.messages)
+        : body.messages;
+      const messages = await toOllamaMessages(clientMsgs, body.system);
 
       try {
         for (let turn = 0; turn < maxToolTurns; turn++) {

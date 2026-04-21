@@ -9,6 +9,8 @@ import { Check, Copy } from "lucide-react";
 import { LinkCard } from "./LinkCard";
 import { Carousel } from "./Carousel";
 import { ArtifactBlock } from "./ArtifactBlock";
+import { SvgBlock } from "./SvgBlock";
+import { MermaidBlock } from "./MermaidBlock";
 
 function CodeBlock({
   className,
@@ -89,6 +91,46 @@ function isUrlOnly(text: string): string | null {
   return s;
 }
 
+// Models often emit Unicode box-drawing art (┌─┐ │ … │ └─┘) as plain
+// paragraphs. Markdown then soft-wraps them and they render as mashed prose.
+// Wrap any run of box-art / pipe-framed lines in a fenced code block so
+// whitespace is preserved — outside existing fences only.
+const BOX_CHAR = /[─-╿]/;
+const PIPE_FRAME = /^\s*[|│].*[|│]\s*$/;
+
+function fenceAsciiBoxes(text: string): string {
+  const lines = text.split("\n");
+  const out: string[] = [];
+  let inFence = false;
+  let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (/^\s*```/.test(l)) {
+      inFence = !inFence;
+      out.push(l);
+      i++;
+      continue;
+    }
+    if (!inFence && BOX_CHAR.test(l)) {
+      let k = i;
+      while (
+        k < lines.length &&
+        (BOX_CHAR.test(lines[k]) || PIPE_FRAME.test(lines[k]))
+      ) {
+        k++;
+      }
+      out.push("```");
+      for (let j = i; j < k; j++) out.push(lines[j]);
+      out.push("```");
+      i = k;
+      continue;
+    }
+    out.push(l);
+    i++;
+  }
+  return out.join("\n");
+}
+
 export function Markdown({
   text,
   sessionId,
@@ -98,6 +140,7 @@ export function Markdown({
   sessionId?: string | null;
   assistantId?: string | null;
 }) {
+  const processed = fenceAsciiBoxes(text);
   return (
     <div className="prose">
       <ReactMarkdown
@@ -118,6 +161,27 @@ export function Markdown({
               return <Carousel urls={urls} />;
             }
             const src = String(children);
+            if (lang === "svg") {
+              return <SvgBlock source={src} />;
+            }
+            if (lang === "mermaid") {
+              return <MermaidBlock source={src} />;
+            }
+            // Full HTML documents route to the artifact iframe (srcdoc path).
+            // Bare/partial HTML snippets fall through to normal code rendering
+            // — we never inject raw HTML into the prose stream (XSS risk).
+            if (
+              lang === "html" &&
+              /^\s*(<!doctype\s+html|<html[\s>])/i.test(src)
+            ) {
+              return (
+                <ArtifactBlock
+                  source={src}
+                  sessionId={sessionId}
+                  assistantId={assistantId}
+                />
+              );
+            }
             const looksLikeArtifact =
               lang === "react-artifact" ||
               lang === "jsx-artifact" ||
@@ -166,7 +230,7 @@ export function Markdown({
           },
         }}
       >
-        {text}
+        {processed}
       </ReactMarkdown>
     </div>
   );

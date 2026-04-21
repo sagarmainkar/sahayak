@@ -19,6 +19,9 @@ export function ArtifactPanel() {
   const refreshKey = externalRefreshKey + localRefreshKey;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  const isHtmlDoc =
+    !!artifact && /^\s*(<!doctype\s+html|<html[\s>])/i.test(artifact.source);
+
   // Load artifact — refetches whenever openId or refreshKey changes
   useEffect(() => {
     if (!openId) {
@@ -92,25 +95,20 @@ export function ArtifactPanel() {
     return () => window.removeEventListener("message", onMsg);
   }, [openId]);
 
-  // When both iframe + artifact are ready, send source
+  // When both iframe + artifact are ready, send source (JSX path only —
+  // HTML docs render via `srcdoc` and don't need the postMessage handshake).
   useEffect(() => {
+    if (isHtmlDoc) return;
     if (!iframeReady || !artifact || !iframeRef.current?.contentWindow) return;
     iframeRef.current.contentWindow.postMessage(
       { sahayak: true, type: "render", source: artifact.source },
       "*",
     );
-  }, [iframeReady, artifact]);
+  }, [iframeReady, artifact, isHtmlDoc]);
 
   function reload() {
     setIframeReady(false);
-    setLocalRefreshKey((k) => k + 1); // refetch source from disk
-    const f = iframeRef.current;
-    if (!f) return;
-    const src = f.src;
-    f.src = "about:blank";
-    requestAnimationFrame(() => {
-      if (iframeRef.current) iframeRef.current.src = src;
-    });
+    setLocalRefreshKey((k) => k + 1); // refetches source + remounts iframe via key
   }
 
   async function copySource() {
@@ -122,11 +120,13 @@ export function ArtifactPanel() {
 
   function downloadSource() {
     if (!artifact) return;
-    const blob = new Blob([artifact.source], { type: "text/jsx" });
+    const ext = isHtmlDoc ? "html" : "jsx";
+    const mime = isHtmlDoc ? "text/html" : "text/jsx";
+    const blob = new Blob([artifact.source], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${artifact.id}.jsx`;
+    a.download = `${artifact.id}.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -187,7 +187,7 @@ export function ArtifactPanel() {
         <button
           onClick={downloadSource}
           className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"
-          data-tip="Download .jsx"
+          data-tip={isHtmlDoc ? "Download .html" : "Download .jsx"}
         >
           <Download className="h-3.5 w-3.5" />
         </button>
@@ -217,8 +217,18 @@ export function ArtifactPanel() {
           <pre className="m-0 h-full overflow-auto p-3 font-mono text-[12px] leading-[1.55] text-fg">
             {artifact?.source ?? ""}
           </pre>
+        ) : isHtmlDoc ? (
+          <iframe
+            key={`html-${openId}-${refreshKey}`}
+            ref={iframeRef}
+            srcDoc={artifact?.source ?? ""}
+            sandbox="allow-scripts"
+            className="h-full w-full border-0 bg-bg"
+            title={artifact?.title ?? "artifact"}
+          />
         ) : (
           <iframe
+            key={`jsx-${openId}-${refreshKey}`}
             ref={iframeRef}
             src="/artifact-runtime.html"
             sandbox="allow-scripts"

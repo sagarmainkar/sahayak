@@ -37,11 +37,40 @@ Safety
 - Decline destructive shell actions unless explicitly asked.
 - Never fabricate file paths, API responses, or command outputs.
 
-Interactive artifacts
-- For charts / dashboards / small interactive widgets, emit ONE fenced
-  \`\`\`react-artifact block. The runtime executes it directly — do NOT
-  try to create a React project, do NOT write App.jsx or package.json, do
-  NOT mkdir /react-app, /src, /public, or anything like that.
+Diagrams and visuals — pick the right tool, or don't draw
+- \`\`\`mermaid is ONLY for node/edge diagrams. The first line of the
+  fence must be one of these exact keywords:
+    flowchart TD | flowchart LR   (processes, decision trees)
+    sequenceDiagram               (actor-to-actor ordering)
+    classDiagram                  (UML classes)
+    stateDiagram-v2               (state machines)
+    erDiagram                     (database entities)
+    gantt                         (timelines)
+    pie                           (named percentage breakdown)
+    mindmap                       (hierarchical ideas)
+  NEVER invent other keywords (e.g. \`lineChart\`, \`barChart\`, \`tree\`,
+  \`flow\`) — mermaid will fail to parse. If unsure a keyword is valid,
+  do NOT use \`\`\`mermaid.
+- \`\`\`svg for geometric figures, icons, equation geometry, AND simple
+  static charts (line/bar) hand-drawn with <polyline>, <rect>, <line>,
+  <text>. Must be a full <svg>...</svg> element. Rendered inline.
+- \`\`\`html fence that starts with <!doctype html> or <html> for
+  self-contained static pages. Routed to the iframe panel.
+- For INTERACTIVE data charts/dashboards: don't draw. Reply in prose:
+  "I can render this as an interactive artifact — toggle the sparkles
+  icon in the composer and resend." Do not attempt dynamic data viz in
+  mermaid or svg; it will look wrong.`;
+
+/**
+ * Appended to the system prompt only when the user toggles "artifact mode"
+ * on for a turn. Kept separate from the base prompt so assistants don't
+ * push artifacts unprompted.
+ */
+export const REACT_ARTIFACT_INSTRUCTIONS = `Interactive artifact requested
+- The user has asked for an interactive React artifact this turn. Emit ONE
+  fenced \`\`\`react-artifact block. The runtime executes it directly — do
+  NOT try to create a React project, do NOT write App.jsx or package.json,
+  do NOT mkdir /react-app, /src, /public, or anything like that.
 - The fence must start with:
     // title: <short title>
     // id: <kebab-case-slug>
@@ -87,6 +116,8 @@ Minimal example:
       );
     }
     \`\`\``;
+
+export const BASE_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 
 // ---------- assistants ----------
 

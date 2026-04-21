@@ -1,13 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Paperclip, Send, X, Loader2 } from "lucide-react";
+import { Paperclip, Send, X, Loader2, Sparkles } from "lucide-react";
+import { cn } from "@/lib/cn";
 import type { MsgAttachment } from "@/lib/types";
 
 type Props = {
   assistantName: string;
   streaming: boolean;
-  onSend: (text: string, attachments: MsgAttachment[]) => void;
+  onSend: (
+    text: string,
+    attachments: MsgAttachment[],
+    artifactsEnabled: boolean,
+  ) => void;
   onAbort: () => void;
 };
 
@@ -31,6 +36,8 @@ export function Composer({ assistantName, streaming, onSend, onAbort }: Props) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<MsgAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
+  // Session-sticky: stays on across turns until toggled off.
+  const [artifactsEnabled, setArtifactsEnabled] = useState(false);
 
   function clear() {
     setInput("");
@@ -40,7 +47,7 @@ export function Composer({ assistantName, streaming, onSend, onAbort }: Props) {
   function submit() {
     if (streaming || uploading > 0) return;
     if (!input.trim() && attachments.length === 0) return;
-    onSend(input.trim(), attachments);
+    onSend(input.trim(), attachments, artifactsEnabled);
     clear();
   }
 
@@ -108,6 +115,24 @@ export function Composer({ assistantName, streaming, onSend, onAbort }: Props) {
               }}
             />
           </label>
+          <button
+            type="button"
+            onClick={() => setArtifactsEnabled((v) => !v)}
+            className={cn(
+              "tt tt-above flex items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
+              artifactsEnabled
+                ? "text-accent"
+                : "text-fg-subtle hover:text-fg",
+            )}
+            data-tip={
+              artifactsEnabled
+                ? "Artifact mode on — reply as a React artifact"
+                : "Artifact mode off"
+            }
+            aria-pressed={artifactsEnabled}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

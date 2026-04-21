@@ -156,6 +156,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
   const localSessionRef = useRef<string | null>(null);
+  // Mirrors the Composer's artifact toggle so regen reuses the same mode.
+  const lastArtifactsEnabledRef = useRef(false);
   const { openId: artifactOpenId } = useArtifactPanel();
 
   const enabledTools = toolOverride ?? assistant?.enabledTools ?? [];
@@ -258,9 +260,14 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     });
   }
 
-  async function handleSend(text: string, attachments: MsgAttachment[]) {
+  async function handleSend(
+    text: string,
+    attachments: MsgAttachment[],
+    artifactsEnabled: boolean,
+  ) {
     if (streaming) return;
     if (!assistant) return;
+    lastArtifactsEnabledRef.current = artifactsEnabled;
 
     const userMsg: ChatMessage = {
       id: uid(),
@@ -310,6 +317,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       })),
       think: assistant.thinkMode === "off" ? false : assistant.thinkMode,
       enabledTools,
+      artifactsEnabled,
     };
 
     const ac = new AbortController();
@@ -453,8 +461,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     // truncate to just before the user message
     const trimmed = messages.slice(0, idx);
     setMessages(trimmed);
-    // replay with the original content + attachments
-    await handleSend(last.content, last.attachments ?? []);
+    // replay with the original content + attachments, preserving artifact mode
+    await handleSend(
+      last.content,
+      last.attachments ?? [],
+      lastArtifactsEnabledRef.current,
+    );
   }
 
   async function newSession() {
