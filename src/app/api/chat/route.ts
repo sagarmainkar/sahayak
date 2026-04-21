@@ -6,6 +6,7 @@ import {
   toOllamaMessages,
   type ClientMsg,
 } from "@/lib/toolLoop";
+import { buildAlwaysInjectedBlock } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,7 +39,18 @@ export async function POST(req: Request) {
   const clientMsgs = body.artifactsEnabled
     ? injectArtifactInstructions(body.messages)
     : body.messages;
-  const messages = await toOllamaMessages(clientMsgs, body.system);
+
+  // Always-on memory: prepend facts + preferences to the system prompt.
+  // Computed fresh on every request so edits in /memory reflect
+  // immediately, no session re-open required. The other memory types
+  // (episodic / procedural / event / semantic) stay retrieval-on-demand
+  // via the recall_memory tool.
+  const memBlock = await buildAlwaysInjectedBlock();
+  const systemWithMemory = memBlock
+    ? `${memBlock}\n\n---\n\n${body.system ?? ""}`.trim()
+    : body.system;
+
+  const messages = await toOllamaMessages(clientMsgs, systemWithMemory);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

@@ -51,6 +51,7 @@ export type Session = {
   completionTokens: number;
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
 };
 
 export type ToolPublic = { name: string; group: string; description: string };
@@ -63,6 +64,7 @@ export type Artifact = {
   source: string; // JSX source
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
 };
 
 export const MEMORY_TYPES = [

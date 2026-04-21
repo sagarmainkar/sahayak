@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSession, listSessions } from "@/lib/store";
+import { maybeSweep } from "@/lib/cleanup";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -9,6 +10,8 @@ export async function GET(req: Request) {
   const assistantId = url.searchParams.get("assistantId");
   if (!assistantId)
     return NextResponse.json({ error: "assistantId required" }, { status: 400 });
+  // Fire-and-forget lazy sweep. No-ops unless > 24h since last run.
+  maybeSweep();
   const sessions = await listSessions(assistantId);
   return NextResponse.json({ sessions });
 }

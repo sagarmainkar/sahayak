@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, RefreshCw, Code2, Download, Copy, Maximize2, Minimize2, Check,
-  Wand2,
+  Wand2, Pin,
 } from "lucide-react";
 import { useArtifactPanel } from "./ArtifactPanelContext";
 import type { Artifact } from "@/lib/types";
@@ -122,6 +122,21 @@ export function ArtifactPanel({ onFixRequest }: Props = {}) {
     );
   }, [iframeReady, artifact, isHtmlDoc]);
 
+  async function togglePin() {
+    if (!artifact) return;
+    const nextPinned = !artifact.pinned;
+    setArtifact({ ...artifact, pinned: nextPinned });
+    try {
+      await fetch(`/api/artifacts/${artifact.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: nextPinned }),
+      });
+    } catch {
+      setArtifact({ ...artifact, pinned: !nextPinned });
+    }
+  }
+
   function reload() {
     setIframeReady(false);
     setLocalRefreshKey((k) => k + 1); // refetches source + remounts iframe via key
@@ -202,6 +217,25 @@ export function ArtifactPanel({ onFixRequest }: Props = {}) {
             Ask to fix
           </button>
         )}
+        <button
+          onClick={togglePin}
+          className={cn(
+            "tt rounded p-1 hover:bg-bg-muted",
+            artifact?.pinned ? "text-accent" : "text-fg-muted hover:text-fg",
+          )}
+          data-tip={
+            artifact?.pinned
+              ? "Pinned — protected from auto-cleanup"
+              : "Pin (protect from auto-cleanup)"
+          }
+        >
+          <Pin
+            className={cn(
+              "h-3.5 w-3.5",
+              artifact?.pinned && "fill-accent",
+            )}
+          />
+        </button>
         <button
           onClick={reload}
           className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"

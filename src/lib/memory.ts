@@ -258,3 +258,26 @@ export async function rebuildVectors(): Promise<{
 export function isValidMemoryType(t: unknown): t is MemoryType {
   return isMemoryType(t);
 }
+
+/**
+ * Build the always-injected memory block (facts + preferences) for
+ * prepending to system prompts. Returns an empty string if there are
+ * none. Newest entries first; capped to keep prompt bloat bounded.
+ */
+export async function buildAlwaysInjectedBlock(): Promise<string> {
+  const all = await listMemories();
+  const facts = all.filter((m) => m.type === "fact").slice(0, 50);
+  const prefs = all.filter((m) => m.type === "preference").slice(0, 50);
+  if (facts.length === 0 && prefs.length === 0) return "";
+
+  const parts: string[] = ["Known about the user (always current):"];
+  if (facts.length) {
+    parts.push("", "Facts:");
+    for (const m of facts) parts.push(`- ${m.content}`);
+  }
+  if (prefs.length) {
+    parts.push("", "Preferences:");
+    for (const m of prefs) parts.push(`- ${m.content}`);
+  }
+  return parts.join("\n");
+}

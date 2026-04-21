@@ -108,6 +108,24 @@ async function readMeta(id: string): Promise<Artifact | null> {
   return { ...meta, source };
 }
 
+export async function updateArtifact(
+  id: string,
+  patch: { pinned?: boolean; title?: string },
+): Promise<Artifact | null> {
+  const cur = await readMeta(id);
+  if (!cur) return null;
+  const next: Artifact = {
+    ...cur,
+    ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
+    ...(patch.title !== undefined ? { title: patch.title } : {}),
+    updatedAt: Date.now(),
+  };
+  const meta = { ...next };
+  delete (meta as Partial<Artifact>).source;
+  await fs.writeFile(metaPath(id), JSON.stringify(meta, null, 2));
+  return next;
+}
+
 export async function getArtifact(id: string): Promise<Artifact | null> {
   return readMeta(id);
 }

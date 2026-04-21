@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Plus, Pencil, Trash2, Archive, Wrench, PanelLeft, Download,
-  RotateCcw, Volume2, Square, Loader2,
+  RotateCcw, Volume2, Square, Loader2, Pin,
 } from "lucide-react";
 import { useSpeaker } from "@/lib/useSpeaker";
 import { Markdown } from "./Markdown";
@@ -660,6 +660,29 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     loadSessions();
   }
 
+  async function togglePinSession(id: string, nextPinned: boolean) {
+    // Optimistic — flip locally, then PATCH. Refresh list on response.
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === id ? { ...s, pinned: nextPinned } : s,
+      ),
+    );
+    try {
+      await fetch(`/api/sessions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: nextPinned }),
+      });
+    } catch {
+      // revert on failure
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === id ? { ...s, pinned: !nextPinned } : s,
+        ),
+      );
+    }
+  }
+
   async function compact() {
     if (!sessionId || messages.length < 6 || streaming) return;
 
@@ -849,6 +872,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   s.id === sessionId
                     ? "bg-bg-muted text-fg"
                     : "text-fg-muted hover:bg-bg-muted/70 hover:text-fg",
+                  s.pinned && "border-l-2 border-accent pl-1.5",
                 )}
               >
                 <button
@@ -858,7 +882,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                       null, "", `/chat/${assistantId}/${s.id}`,
                     );
                   }}
-                  className="flex-1 truncate text-left"
+                  className={cn(
+                    "flex-1 truncate text-left",
+                    s.pinned && "font-medium text-fg",
+                  )}
                 >
                   {s.title || "Untitled"}
                 </button>
@@ -867,6 +894,33 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                     {fmtTokens(s.promptTokens + s.completionTokens)}
                   </span>
                 )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePinSession(s.id, !s.pinned);
+                  }}
+                  className={cn(
+                    "flex-shrink-0 transition-opacity",
+                    s.pinned
+                      ? "opacity-100"
+                      : "opacity-0 group-hover:opacity-100",
+                  )}
+                  aria-label={s.pinned ? "Unpin" : "Pin"}
+                  title={
+                    s.pinned
+                      ? "Pinned — protected from auto-cleanup"
+                      : "Pin (protect from auto-cleanup)"
+                  }
+                >
+                  <Pin
+                    className={cn(
+                      "h-3 w-3",
+                      s.pinned
+                        ? "fill-accent text-accent"
+                        : "text-fg-subtle hover:text-accent",
+                    )}
+                  />
+                </button>
                 <a
                   href={`/api/sessions/${s.id}/export`}
                   download

@@ -37,34 +37,33 @@ Safety
 - Decline destructive shell actions unless explicitly asked.
 - Never fabricate file paths, API responses, or command outputs.
 
-Memory — cross-session notes about the user (IMPORTANT)
-- You have \`recall_memory(query)\`, \`list_memories({type?})\`, and
-  \`remember({type, content})\` tools, shared across all chats.
+Memory — cross-session notes about the user
+- **Facts** and **preferences** about the user are already prepended
+  to this system prompt (the "Known about the user" block above).
+  Treat them as always-current context — respect preferences, use
+  facts to tailor answers. Do NOT call \`recall_memory\` to look them
+  up; they're in front of you.
 
-- DEFAULT BEHAVIOR: at the START of most replies, silently call
-  \`recall_memory\` with a focused query derived from the user's topic,
-  BEFORE composing your answer. Triggers include:
-    - any question about preferences, past decisions, or "what did I say"
-    - any task where user context might change the answer (their stack,
-      their environment, their tooling choices, their project)
-    - any named entity the user might have previously defined
-    - any "how do I / how should I" where a procedural memory could exist
-  Do this without narrating it — no "let me check my memory…" filler.
-  Use the returned content to tailor your reply: mention relevant
-  facts, respect stated preferences, reuse known procedures.
+- For the other four memory types — **episodic** (dated experiences),
+  **procedural** (how-to recipes), **event** (upcoming / time-bound),
+  **semantic** (general knowledge) — call \`recall_memory(query)\` at
+  the START of your reply when the user's topic could plausibly match.
+  Examples:
+    - "how did we fix that bug last week?" → episodic
+    - "how do we deploy to Azure?" → procedural
+    - "is there anything on my calendar Thursday?" → event
+    - "what does xychart-beta do in mermaid?" → semantic
+  Do this silently — no "let me check my memory…" filler. When unsure,
+  call it: a no-match result is cheap.
 
-- Skip \`recall_memory\` ONLY for trivial requests with no personal
-  context: pure math, a generic code snippet, tight follow-ups within
-  the same turn. When unsure, call it — a no-match result is cheap.
+- \`list_memories({type?})\` — use when the user explicitly asks "what
+  do you remember" / "what have I noted". Returns everything without
+  ranking.
 
-- Query tips: short noun phrases tied to the topic ("deploy process",
-  "preferred editor", "artifact pipeline"). If the topic clearly maps
-  to one type, pass \`type\` to narrow (e.g. \`type: "preference"\` for
-  prefs, \`type: "procedural"\` for how-tos).
-
-- Call \`remember\` ONLY when the user explicitly asks ("remember
-  that…", "from now on…") or states something clearly stable and
-  personal. Do NOT auto-save conversational trivia.
+- \`remember({type, content})\` — call ONLY when the user explicitly
+  asks ("remember that…", "from now on…") or states something clearly
+  stable and personal. Pick the right type. Do NOT auto-save
+  conversational trivia.
 
 - Types: fact | preference | episodic | procedural | event | semantic.
 
@@ -262,6 +261,7 @@ type MetaRecord = {
   completionTokens: number;
   createdAt: number;
   updatedAt: number;
+  pinned?: boolean;
 };
 
 type MessageRecord = { type: "message"; data: ChatMessage };
@@ -311,7 +311,17 @@ function metaToSession(meta: MetaRecord, messages: ChatMessage[]): Session {
     completionTokens: meta.completionTokens,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
+    ...(meta.pinned ? { pinned: true } : {}),
   };
+}
+
+function sortSessions<T extends { pinned?: boolean; updatedAt: number }>(
+  list: T[],
+): T[] {
+  return list.sort((a, b) => {
+    if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1; // pinned first
+    return b.updatedAt - a.updatedAt;
+  });
 }
 
 export async function listSessions(assistantId: string): Promise<Session[]> {
@@ -323,7 +333,7 @@ export async function listSessions(assistantId: string): Promise<Session[]> {
     const loaded = await loadSessionFile(path.join(dir, f));
     if (loaded) out.push(metaToSession(loaded.meta, loaded.messages));
   }
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  return sortSessions(out);
 }
 
 /** Fast path for analytics: reads only the meta line of each JSONL. */
@@ -356,6 +366,7 @@ export async function listSessionMetas(
           completionTokens: meta.completionTokens,
           createdAt: meta.createdAt,
           updatedAt: meta.updatedAt,
+          ...(meta.pinned ? { pinned: true } : {}),
         });
       } finally {
         await fh.close();
@@ -364,7 +375,7 @@ export async function listSessionMetas(
       continue;
     }
   }
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+  return sortSessions(out);
 }
 
 export async function getSession(id: string): Promise<Session | null> {
@@ -411,6 +422,7 @@ export async function updateSession(
     modelOverride?: string | null;
     promptTokens?: number;
     completionTokens?: number;
+    pinned?: boolean;
   },
 ): Promise<Session | null> {
   if (!existsSync(SESSIONS_DIR)) return null;
@@ -427,6 +439,7 @@ export async function updateSession(
       ...(patch.completionTokens !== undefined && {
         completionTokens: patch.completionTokens,
       }),
+      ...(patch.pinned !== undefined && { pinned: patch.pinned }),
       updatedAt: Date.now(),
     };
     const newMessages = patch.messages ?? loaded.messages;
