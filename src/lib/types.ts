@@ -65,3 +65,23 @@ export type Artifact = {
   updatedAt: number;
 };
 
+export const MEMORY_TYPES = [
+  "fact",
+  "preference",
+  "episodic",
+  "procedural",
+  "event",
+  "semantic",
+] as const;
+export type MemoryType = (typeof MEMORY_TYPES)[number];
+
+export type MemoryEntry = {
+  id: string;
+  type: MemoryType;
+  content: string;
+  source: "user" | "model";
+  sessionId?: string;
+  createdAt: number;
+  updatedAt: number;
+};
+

@@ -5,7 +5,7 @@ export type ToolResult = {
 
 export type ToolSpec = {
   name: string;
-  group: "fs" | "shell" | "web" | "gmail";
+  group: "fs" | "shell" | "web" | "gmail" | "memory";
   description: string;
   parameters: {
     type: "object";

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Brain, Settings as SettingsIcon } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { StyleSwitcher } from "./StyleSwitcher";
 
@@ -18,11 +18,25 @@ export function Header({ children }: { children?: React.ReactNode }) {
       </Link>
       <div className="flex flex-1 items-center gap-2">{children}</div>
       <Link
+        href="/memory"
+        className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+        data-tip="Memory"
+      >
+        <Brain className="h-3.5 w-3.5" />
+      </Link>
+      <Link
         href="/stats"
         className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
         data-tip="Stats"
       >
         <BarChart3 className="h-3.5 w-3.5" />
+      </Link>
+      <Link
+        href="/settings"
+        className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+        data-tip="Settings"
+      >
+        <SettingsIcon className="h-3.5 w-3.5" />
       </Link>
       <StyleSwitcher />
       <ThemeToggle />
