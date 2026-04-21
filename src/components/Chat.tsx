@@ -16,6 +16,7 @@ import { Composer } from "./Composer";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { useArtifactPanel } from "./ArtifactPanelContext";
 import { cn } from "@/lib/cn";
+import { fmtTokens } from "@/lib/fmt";
 import type {
   Assistant, ChatMessage, ModelInfo, MsgAttachment, Session, ToolPublic,
 } from "@/lib/types";
@@ -617,6 +618,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 >
                   {s.title || "Untitled"}
                 </button>
+                {(s.promptTokens + s.completionTokens) > 0 && (
+                  <span className="ml-1 flex-shrink-0 font-mono text-[9.5px] tabular-nums text-fg-subtle group-hover:hidden">
+                    {fmtTokens(s.promptTokens + s.completionTokens)}
+                  </span>
+                )}
                 <a
                   href={`/api/sessions/${s.id}/export`}
                   download

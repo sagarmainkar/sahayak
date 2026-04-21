@@ -264,6 +264,47 @@ export async function listSessions(assistantId: string): Promise<Session[]> {
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+/** Fast path for analytics: reads only the meta line of each JSONL. */
+export async function listSessionMetas(
+  assistantId: string,
+): Promise<Omit<Session, "messages">[]> {
+  const dir = path.join(SESSIONS_DIR, assistantId);
+  if (!existsSync(dir)) return [];
+  const files = (await fs.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  const out: Omit<Session, "messages">[] = [];
+  for (const f of files) {
+    const p = path.join(dir, f);
+    try {
+      // Read just enough to get the first line (meta record).
+      const fh = await fs.open(p, "r");
+      try {
+        const buf = Buffer.alloc(2048);
+        const { bytesRead } = await fh.read(buf, 0, 2048, 0);
+        const nl = buf.subarray(0, bytesRead).indexOf(10); // '\n'
+        if (nl < 0) continue;
+        const line = buf.subarray(0, nl).toString("utf8");
+        const meta = JSON.parse(line) as MetaRecord;
+        if (meta.type !== "meta") continue;
+        out.push({
+          id: meta.id,
+          assistantId: meta.assistantId,
+          title: meta.title,
+          modelOverride: meta.modelOverride,
+          promptTokens: meta.promptTokens,
+          completionTokens: meta.completionTokens,
+          createdAt: meta.createdAt,
+          updatedAt: meta.updatedAt,
+        });
+      } finally {
+        await fh.close();
+      }
+    } catch {
+      continue;
+    }
+  }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export async function getSession(id: string): Promise<Session | null> {
   // Walk all assistant dirs to find the session (id is global unique)
   if (!existsSync(SESSIONS_DIR)) return null;

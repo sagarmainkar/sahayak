@@ -116,10 +116,18 @@ export async function listArtifacts(opts?: {
   sessionId?: string;
 }): Promise<Artifact[]> {
   if (!existsSync(ARTIFACTS_DIR)) return [];
-  const ids = await fs.readdir(ARTIFACTS_DIR);
+  const entries = await fs.readdir(ARTIFACTS_DIR, { withFileTypes: true });
   const out: Artifact[] = [];
-  for (const id of ids) {
-    const m = await readMeta(id);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue; // skip _by_hash.json, stray files
+    const id = entry.name;
+    if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(id)) continue; // only valid ids
+    let m: Artifact | null = null;
+    try {
+      m = await readMeta(id);
+    } catch {
+      continue;
+    }
     if (!m) continue;
     if (opts?.sessionId && m.sessionId !== opts.sessionId) continue;
     out.push(m);
