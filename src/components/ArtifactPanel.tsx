@@ -3,12 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, RefreshCw, Code2, Download, Copy, Maximize2, Minimize2, Check,
+  Wand2,
 } from "lucide-react";
 import { useArtifactPanel } from "./ArtifactPanelContext";
 import type { Artifact } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
-export function ArtifactPanel() {
+type Props = {
+  /** Called when the user clicks "Ask to fix" on a runtime error. */
+  onFixRequest?: (prompt: string) => void;
+};
+
+export function ArtifactPanel({ onFixRequest }: Props = {}) {
   const { openId, refreshKey: externalRefreshKey, close } = useArtifactPanel();
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [showSource, setShowSource] = useState(false);
@@ -16,6 +22,7 @@ export function ArtifactPanel() {
   const [copied, setCopied] = useState(false);
   const [iframeReady, setIframeReady] = useState(false);
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const refreshKey = externalRefreshKey + localRefreshKey;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -28,8 +35,11 @@ export function ArtifactPanel() {
       setArtifact(null);
       setIframeReady(false);
       setShowSource(false);
+      setRuntimeError(null);
       return;
     }
+    // Reset error state when the panel's artifact changes or refreshes.
+    setRuntimeError(null);
     fetch(`/api/artifacts/${openId}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((d: { artifact: Artifact }) => setArtifact(d.artifact));
@@ -44,12 +54,18 @@ export function ArtifactPanel() {
         reqId?: number;
         filename?: string;
         as?: "auto" | "text" | "json" | "csv";
+        message?: string;
       };
       if (!d || !d.sahayak || !iframeRef.current?.contentWindow) return;
       if (e.source !== iframeRef.current.contentWindow) return;
 
       if (d.type === "ready") {
         setIframeReady(true);
+        return;
+      }
+      if (d.type === "error") {
+        // Runtime error from the iframe (render, script, or unhandled promise).
+        setRuntimeError(String(d.message ?? "unknown runtime error"));
         return;
       }
       if (d.type === "fetch_data" && openId && d.filename) {
@@ -118,6 +134,26 @@ export function ArtifactPanel() {
     setTimeout(() => setCopied(false), 1200);
   }
 
+  function askToFix() {
+    if (!artifact || !runtimeError || !onFixRequest) return;
+    const title = artifact.title || "the artifact";
+    const id = artifact.id;
+    // Template the model has a clear hook to regenerate in-place: same id.
+    const prompt =
+      `The "${title}" artifact errored at runtime:\n\n` +
+      "```\n" +
+      runtimeError.trim() +
+      "\n```\n\n" +
+      `Please diagnose the root cause in one short paragraph, then emit ` +
+      `the corrected \`\`\`react-artifact fence using the same ` +
+      `\`// id: ${id}\`. Keep the fix minimal — don't rewrite working ` +
+      `parts. If the error is from a bad import or missing global, ` +
+      `remember the runtime only exposes React, Recharts, Papa, and the ` +
+      `Sahayak.fetchData data bridge.`;
+    onFixRequest(prompt);
+    setRuntimeError(null); // dismiss locally; the resend flow will open a new turn
+  }
+
   function downloadSource() {
     if (!artifact) return;
     const ext = isHtmlDoc ? "html" : "jsx";
@@ -156,6 +192,16 @@ export function ArtifactPanel() {
             {artifact?.title ?? "loading…"}
           </div>
         </div>
+        {runtimeError && onFixRequest && (
+          <button
+            onClick={askToFix}
+            className="tt flex items-center gap-1 rounded border border-red-500/40 bg-red-500/10 px-2 py-0.5 font-sans text-[11px] text-red-500 hover:bg-red-500/15"
+            data-tip="Send error to assistant for a fix"
+          >
+            <Wand2 className="h-3 w-3" />
+            Ask to fix
+          </button>
+        )}
         <button
           onClick={reload}
           className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"

@@ -899,7 +899,14 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           </div>
 
           {artifactOpenId ? (
-            <ArtifactPanel />
+            <ArtifactPanel
+              onFixRequest={(prompt) => {
+                // Force artifact mode on for the fix turn so the model
+                // regenerates a react-artifact fence.
+                lastArtifactsEnabledRef.current = true;
+                handleSend(prompt, [], true);
+              }}
+            />
           ) : showTools && (
             <aside className="w-72 overflow-y-auto border-l border-border bg-bg-elev p-3">
               <div className="byline mb-2">tools</div>
