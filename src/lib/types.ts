@@ -21,14 +21,29 @@ export type Assistant = {
   updatedAt: number;
 };
 
-export type MsgAttachment = {
-  type: "image";
-  mimeType: string;
-  /** Content-addressed filename served by /api/attachment/<filename>. Preferred. */
-  filename?: string;
-  /** Inline base64 (legacy; still supported for backward-compat). */
-  data?: string;
-};
+export type MsgAttachment =
+  | {
+      type: "image";
+      mimeType: string;
+      /** Content-addressed filename served by /api/attachment/<filename>. */
+      filename?: string;
+      /** Inline base64 (legacy; still supported for backward-compat). */
+      data?: string;
+      /** Original filename as uploaded — used for display only. */
+      originalName?: string;
+    }
+  | {
+      type: "document";
+      mimeType: string;
+      /** Content-addressed filename of the raw file. */
+      filename: string;
+      /** Basename of the extracted-text sidecar (filename + .txt). */
+      textFilename: string;
+      /** Bytes of the source file, for UI display. */
+      bytes?: number;
+      /** Original filename as uploaded — used for display only. */
+      originalName?: string;
+    };
 
 export type ChatMessage = {
   id: string;

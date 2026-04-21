@@ -10,6 +10,10 @@ import {
   Mic,
   Volume2,
   VolumeX,
+  FileText,
+  FilePlus,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { MEMORY_TYPES, type MemoryType, type MsgAttachment } from "@/lib/types";
@@ -101,20 +105,90 @@ type Props = {
   onAutoSpeakToggle: () => void;
 };
 
-async function uploadOne(file: File): Promise<MsgAttachment | null> {
+type UploadResponse = {
+  attachment: {
+    mimeType: string;
+    url: string;
+    kind: "image" | "document";
+    textFilename?: string;
+    bytes: number;
+  };
+};
+
+type UploadResult =
+  | { ok: true; attachment: MsgAttachment }
+  | { ok: false; reason: string }
+  | { ok: false; needsPassword: true; message: string; retry: boolean };
+
+async function uploadOne(
+  file: File,
+  password?: string,
+): Promise<UploadResult> {
   const fd = new FormData();
   fd.append("file", file);
+  if (password) fd.append("password", password);
   try {
     const r = await fetch("/api/uploads", { method: "POST", body: fd });
-    if (!r.ok) return null;
-    const j = (await r.json()) as {
-      attachment: { mimeType: string; url: string };
+    if (!r.ok) {
+      try {
+        const j = await r.json();
+        if (j?.error === "pdf_encrypted" || j?.error === "pdf_bad_password") {
+          return {
+            ok: false,
+            needsPassword: true,
+            message: String(j.message ?? ""),
+            retry: j.error === "pdf_bad_password",
+          };
+        }
+        if (j?.error) return { ok: false, reason: String(j.error) };
+      } catch {}
+      return { ok: false, reason: `HTTP ${r.status}` };
+    }
+    const j = (await r.json()) as UploadResponse;
+    const filename = j.attachment.url.split("/").pop() ?? "";
+    if (j.attachment.kind === "document" && j.attachment.textFilename) {
+      return {
+        ok: true,
+        attachment: {
+          type: "document",
+          mimeType: j.attachment.mimeType,
+          filename,
+          textFilename: j.attachment.textFilename,
+          bytes: j.attachment.bytes,
+          originalName: file.name,
+        },
+      };
+    }
+    return {
+      ok: true,
+      attachment: {
+        type: "image",
+        mimeType: j.attachment.mimeType,
+        filename,
+        originalName: file.name,
+      },
     };
-    const name = j.attachment.url.split("/").pop() ?? "";
-    return { type: "image", mimeType: j.attachment.mimeType, filename: name };
-  } catch {
-    return null;
+  } catch (e) {
+    return { ok: false, reason: (e as Error).message };
   }
+}
+
+const DOC_EXTENSIONS =
+  ".pdf,.md,.txt,.csv,.docx,.xlsx,.pptx," +
+  "application/pdf," +
+  "text/markdown,text/plain,text/csv," +
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet," +
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+function classifyFile(f: File): "image" | "document" | "other" {
+  if (f.type.startsWith("image/")) return "image";
+  const nameExt = f.name.split(".").pop()?.toLowerCase() ?? "";
+  const docExts = ["pdf", "md", "txt", "csv", "docx", "xlsx", "pptx"];
+  if (docExts.includes(nameExt)) return "document";
+  if (/(pdf|word|spreadsheet|presentation|text|csv|markdown)/.test(f.type))
+    return "document";
+  return "other";
 }
 
 export function Composer({
@@ -135,6 +209,13 @@ export function Composer({
   const [transcribing, setTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  // Encrypted PDFs queue up here; we show a password prompt for the
+  // head-of-queue entry until the user unlocks or skips.
+  const [pendingEncrypted, setPendingEncrypted] = useState<
+    { file: File; message: string }[]
+  >([]);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
 
   function flashNote(msg: string, ms = 2500) {
     setSlashNote(msg);
@@ -240,18 +321,75 @@ export function Composer({
   }
 
   async function addFiles(files: FileList | File[]) {
-    const arr = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    const arr = Array.from(files).filter(
+      (f) => classifyFile(f) !== "other",
+    );
+    const skipped = Array.from(files).length - arr.length;
+    if (skipped > 0) {
+      flashNote(`${skipped} file(s) skipped — unsupported type`, 3000);
+    }
     if (!arr.length) return;
     setUploading((n) => n + arr.length);
-    const results = await Promise.all(arr.map(uploadOne));
-    setAttachments((prev) => [
-      ...prev,
-      ...results.filter((r): r is MsgAttachment => !!r),
-    ]);
+    const results = await Promise.all(
+      arr.map(async (f) => ({ file: f, res: await uploadOne(f) })),
+    );
+    const successes: MsgAttachment[] = [];
+    const failures: string[] = [];
+    const encryptedQueue: { file: File; message: string }[] = [];
+    for (const { file, res } of results) {
+      if (res.ok) {
+        successes.push(res.attachment);
+      } else if ("needsPassword" in res) {
+        encryptedQueue.push({ file, message: res.message });
+      } else {
+        failures.push(`${file.name}: ${res.reason}`);
+      }
+    }
+    if (failures.length) {
+      flashNote(`upload failed — ${failures[0]}`, 6000);
+      console.error("[upload] failures:", failures);
+    }
+    setAttachments((prev) => [...prev, ...successes]);
+    if (encryptedQueue.length) {
+      setPendingEncrypted((prev) => [...prev, ...encryptedQueue]);
+    }
     setUploading((n) => n - arr.length);
   }
 
-  function srcFor(a: MsgAttachment): string {
+  async function unlockEncrypted(password: string) {
+    const first = pendingEncrypted[0];
+    if (!first || !password) return;
+    setUnlocking(true);
+    try {
+      const res = await uploadOne(first.file, password);
+      if (res.ok) {
+        setAttachments((prev) => [...prev, res.attachment]);
+        setPendingEncrypted((prev) => prev.slice(1));
+        setUnlockPassword("");
+      } else if ("needsPassword" in res) {
+        // Wrong password — keep the prompt, update the message.
+        setPendingEncrypted((prev) =>
+          prev.length
+            ? [{ file: prev[0].file, message: res.message }, ...prev.slice(1)]
+            : prev,
+        );
+      } else {
+        flashNote(`unlock failed — ${res.reason}`, 4000);
+        setPendingEncrypted((prev) => prev.slice(1));
+        setUnlockPassword("");
+      }
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  function skipEncrypted() {
+    setPendingEncrypted((prev) => prev.slice(1));
+    setUnlockPassword("");
+  }
+
+  function imgSrcFor(a: MsgAttachment): string {
+    if (a.type !== "image") return "";
     if (a.filename) return `/api/attachment/${a.filename}`;
     if (a.data) return `data:${a.mimeType};base64,${a.data}`;
     return "";
@@ -260,25 +398,105 @@ export function Composer({
   return (
     <div className="border-t border-border bg-bg-elev px-4 py-3">
       <div className="mx-auto max-w-[74ch]">
+        {pendingEncrypted.length > 0 && (
+          <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2">
+            <Lock className="h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-[11.5px] text-fg">
+                {pendingEncrypted[0].file.name}
+              </div>
+              <div className="font-sans text-[10.5px] text-fg-muted">
+                {pendingEncrypted[0].message}
+                {pendingEncrypted.length > 1 &&
+                  ` · ${pendingEncrypted.length - 1} more queued`}
+              </div>
+            </div>
+            <input
+              type="password"
+              value={unlockPassword}
+              onChange={(e) => setUnlockPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && unlockPassword) {
+                  e.preventDefault();
+                  unlockEncrypted(unlockPassword);
+                }
+              }}
+              placeholder="password"
+              autoFocus
+              disabled={unlocking}
+              className="w-40 rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] focus:border-accent focus:outline-none disabled:opacity-60"
+            />
+            <button
+              onClick={() => unlockEncrypted(unlockPassword)}
+              disabled={!unlockPassword || unlocking}
+              className="flex items-center gap-1 rounded bg-accent px-2.5 py-1 font-sans text-[11px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
+            >
+              {unlocking ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Unlock className="h-3 w-3" />
+              )}
+              Unlock
+            </button>
+            <button
+              onClick={skipEncrypted}
+              disabled={unlocking}
+              className="rounded border border-border px-2 py-1 font-sans text-[11px] text-fg-muted hover:text-fg disabled:opacity-40"
+            >
+              Skip
+            </button>
+          </div>
+        )}
         {(attachments.length > 0 || uploading > 0) && (
           <div className="mb-2 flex flex-wrap gap-2">
-            {attachments.map((a, i) => (
-              <div key={i} className="relative">
-                <img
-                  src={srcFor(a)}
-                  alt=""
-                  className="h-16 w-16 rounded border border-border object-cover"
-                />
-                <button
-                  onClick={() =>
-                    setAttachments((p) => p.filter((_, k) => k !== i))
-                  }
-                  className="absolute -right-1 -top-1 rounded-full bg-bg p-0.5 text-fg-muted hover:text-fg"
+            {attachments.map((a, i) => {
+              const remove = () =>
+                setAttachments((p) => p.filter((_, k) => k !== i));
+              if (a.type === "image") {
+                return (
+                  <div key={i} className="relative">
+                    <img
+                      src={imgSrcFor(a)}
+                      alt=""
+                      className="h-16 w-16 rounded border border-border object-cover"
+                    />
+                    <button
+                      onClick={remove}
+                      className="absolute -right-1 -top-1 rounded-full bg-bg p-0.5 text-fg-muted hover:text-fg"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              }
+              // document chip
+              const ext = (a.filename ?? "").split(".").pop() ?? "doc";
+              const kb = a.bytes ? Math.round(a.bytes / 1024) : null;
+              return (
+                <div
+                  key={i}
+                  className="relative flex h-16 items-center gap-2 rounded border border-border bg-bg-paper px-3 pr-8"
+                  title={a.originalName ?? a.filename}
                 >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
+                  <FileText className="h-5 w-5 flex-shrink-0 text-fg-subtle" />
+                  <div className="min-w-0">
+                    <div className="max-w-[22ch] truncate font-mono text-[12px] text-fg">
+                      {a.originalName ?? a.filename}
+                    </div>
+                    <div className="font-sans text-[10.5px] text-fg-subtle">
+                      .{ext}
+                      {kb !== null ? ` · ${kb} KB` : ""}
+                    </div>
+                  </div>
+                  <button
+                    onClick={remove}
+                    className="absolute -right-1 -top-1 rounded-full bg-bg p-0.5 text-fg-muted hover:text-fg"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              );
+            })}
             {uploading > 0 && (
               <div className="flex h-16 w-16 items-center justify-center rounded border border-dashed border-border">
                 <Loader2 className="h-4 w-4 animate-spin text-fg-subtle" />
@@ -295,6 +513,22 @@ export function Composer({
             <input
               type="file"
               accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files) addFiles(e.target.files);
+                e.currentTarget.value = "";
+              }}
+            />
+          </label>
+          <label
+            className="tt tt-above flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
+            data-tip="Attach document (pdf, docx, xlsx, pptx, md, txt, csv)"
+          >
+            <FilePlus className="h-3.5 w-3.5" />
+            <input
+              type="file"
+              accept={DOC_EXTENSIONS}
               multiple
               className="hidden"
               onChange={(e) => {

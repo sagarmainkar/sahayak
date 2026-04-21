@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Plus, Pencil, Trash2, Archive, Wrench, PanelLeft, Download,
-  RotateCcw, Volume2, Square, Loader2, Pin,
+  RotateCcw, Volume2, Square, Loader2, Pin, FileText,
 } from "lucide-react";
 import { useSpeaker } from "@/lib/useSpeaker";
 import { Markdown } from "./Markdown";
@@ -82,14 +82,43 @@ const Turn = memo(function Turn({
         <div className="byline mb-1.5">you</div>
         {m.attachments && m.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap justify-end gap-2">
-            {m.attachments.map((a, i) => (
-              <img
-                key={i}
-                src={a.filename ? `/api/attachment/${a.filename}` : `data:${a.mimeType};base64,${a.data}`}
-                alt=""
-                className="max-h-56 rounded border border-user-border"
-              />
-            ))}
+            {m.attachments.map((a, i) => {
+              if (a.type === "image") {
+                return (
+                  <img
+                    key={i}
+                    src={
+                      a.filename
+                        ? `/api/attachment/${a.filename}`
+                        : `data:${a.mimeType};base64,${a.data}`
+                    }
+                    alt=""
+                    className="max-h-56 rounded border border-user-border"
+                  />
+                );
+              }
+              // document
+              const ext = a.filename.split(".").pop() ?? "doc";
+              return (
+                <a
+                  key={i}
+                  href={`/api/attachment/${a.filename}`}
+                  download={a.originalName ?? a.filename}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded border border-user-border bg-user-bubble/40 px-2.5 py-1.5 text-[12px] text-fg hover:border-accent"
+                  title={a.originalName ?? a.filename}
+                >
+                  <FileText className="h-3.5 w-3.5 text-fg-subtle" />
+                  <span className="max-w-[18ch] truncate font-mono">
+                    {a.originalName ?? a.filename}
+                  </span>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+                    .{ext}
+                  </span>
+                </a>
+              );
+            })}
           </div>
         )}
         <div className="group flex items-start gap-1.5">

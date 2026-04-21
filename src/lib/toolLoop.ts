@@ -1,9 +1,10 @@
 import { nanoid } from "nanoid";
 import { OLLAMA_URL } from "@/lib/ollama";
 import { TOOLS_BY_NAME, toolsForOllama } from "@/lib/tools";
-import { readUpload } from "@/lib/uploads";
+import { readUpload, readUploadText } from "@/lib/uploads";
 import { REACT_ARTIFACT_INSTRUCTIONS } from "@/lib/store";
 import { setPaused, type PausedLoop } from "@/lib/approvalStore";
+import type { MsgAttachment } from "@/lib/types";
 
 export const DEFAULT_REQUIRE_APPROVAL = [
   "execute_command",
@@ -13,13 +14,6 @@ export const DEFAULT_REQUIRE_APPROVAL = [
 const ARTIFACT_TOOLS = new Set(["artifact_create", "artifact_write_file"]);
 
 type ToolCall = { name: string; arguments: Record<string, unknown> };
-
-type MsgAttachment = {
-  type: "image";
-  mimeType: string;
-  filename?: string;
-  data?: string;
-};
 
 export type ClientMsg = {
   role: "system" | "user" | "assistant" | "tool";
@@ -40,6 +34,7 @@ type OllamaMsg = {
 };
 
 async function attachmentToBase64(a: MsgAttachment): Promise<string | null> {
+  if (a.type !== "image") return null;
   if (a.data) return a.data;
   if (a.filename) {
     const loaded = await readUpload(a.filename);
@@ -67,12 +62,27 @@ export async function toOllamaMessages(
     }
     if (m.toolName) om.tool_name = m.toolName;
     if (m.attachments && m.attachments.length) {
-      const images = await Promise.all(
-        m.attachments
-          .filter((a) => a.type === "image")
-          .map(attachmentToBase64),
-      );
-      om.images = images.filter((b): b is string => !!b);
+      const imgB64s: (string | null)[] = [];
+      const docChunks: string[] = [];
+      for (const a of m.attachments) {
+        if (a.type === "image") {
+          imgB64s.push(await attachmentToBase64(a));
+        } else if (a.type === "document") {
+          const text = await readUploadText(a.textFilename);
+          if (!text) continue;
+          const label = a.originalName ?? a.filename;
+          docChunks.push(
+            `\n\nAttached: ${label}\n\`\`\`\n${text}\n\`\`\``,
+          );
+        }
+      }
+      const images = imgB64s.filter((b): b is string => !!b);
+      if (images.length) om.images = images;
+      if (docChunks.length) {
+        // Documents get inlined into content on the wire. Client's
+        // persisted message stays clean (just the refs).
+        om.content = `${om.content}${docChunks.join("")}`;
+      }
     }
     out.push(om);
   }
