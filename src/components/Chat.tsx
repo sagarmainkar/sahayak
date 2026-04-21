@@ -15,6 +15,7 @@ import { Thinking } from "./Thinking";
 import { ToolCard } from "./ToolCard";
 import { Composer } from "./Composer";
 import { ArtifactPanel } from "./ArtifactPanel";
+import { ToolApprovalCard } from "./ToolApprovalCard";
 import { useArtifactPanel } from "./ArtifactPanelContext";
 import { cn } from "@/lib/cn";
 import { fmtTokens } from "@/lib/fmt";
@@ -197,6 +198,31 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const [autoSpeak, setAutoSpeak] = useState(false);
   const autoSpeakRef = useRef(false);
   const speaker = useSpeaker();
+  // Tool-approval state — gates risky tool calls per the server's
+  // requireApproval list.
+  const [pendingApproval, setPendingApproval] = useState<{
+    token: string;
+    toolName: string;
+    arguments: Record<string, unknown>;
+    index: number;
+  } | null>(null);
+  const [sessionApprovedTools, setSessionApprovedTools] = useState<Set<string>>(
+    new Set(),
+  );
+  const approvalDeciderRef = useRef<
+    | ((d: { decision: "approve" | "deny" | "cancel"; persist: boolean }) => void)
+    | null
+  >(null);
+
+  function decideApproval(
+    decision: "approve" | "deny" | "cancel",
+    persist: boolean,
+  ) {
+    const d = approvalDeciderRef.current;
+    approvalDeciderRef.current = null;
+    setPendingApproval(null);
+    d?.({ decision, persist });
+  }
   const [activeSpeakId, setActiveSpeakId] = useState<string | null>(null);
 
   // Clear the active id once playback + loading both idle.
@@ -362,7 +388,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     };
     startNewAssistant();
 
-    const payload = {
+    const initialPayload = {
       model: activeModel,
       system: assistant.systemPrompt,
       messages: nextMessages.map((m) => ({
@@ -376,23 +402,35 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       think: assistant.thinkMode === "off" ? false : assistant.thinkMode,
       enabledTools,
       artifactsEnabled,
+      autoApproveTools: [...sessionApprovedTools],
     };
 
     const ac = new AbortController();
     abortRef.current = ac;
 
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: ac.signal,
-      });
+    let cancelled = false;
+    let lastTokens = { prompt: 0, completion: 0 };
+
+    // Consumes one SSE stream. Returns a pause event if the loop paused
+    // awaiting approval, or null when the stream ends normally.
+    async function consumeStream(
+      res: Response,
+    ): Promise<{
+      token: string;
+      toolName: string;
+      arguments: Record<string, unknown>;
+      index: number;
+    } | null> {
       if (!res.body) throw new Error("no body");
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = "";
-      let lastTokens = { prompt: 0, completion: 0 };
+      let pause: {
+        token: string;
+        toolName: string;
+        arguments: Record<string, unknown>;
+        index: number;
+      } | null = null;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -458,6 +496,15 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             }
             setMessages([...assembled]);
             startNewAssistant();
+          } else if (t === "tool_approval_required") {
+            pause = {
+              token: String(obj.token ?? ""),
+              toolName: String(obj.toolName ?? ""),
+              arguments:
+                (obj.arguments as Record<string, unknown>) ?? {},
+              index: Number(obj.index ?? 0),
+            };
+            // Stream will close next; let the reader drain.
           } else if (t === "error") {
             const cur = assembled[curIndex];
             patchCur({
@@ -466,6 +513,61 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             });
           }
         }
+      }
+      return pause;
+    }
+
+    try {
+      let nextFetch: { url: string; body: unknown } = {
+        url: "/api/chat",
+        body: initialPayload,
+      };
+
+      // Outer loop drives fresh + resumed streams. Exits when a stream
+      // ends without a pause event, or when the user cancels the pause.
+      while (true) {
+        const res = await fetch(nextFetch.url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(nextFetch.body),
+          signal: ac.signal,
+        });
+        const pause = await consumeStream(res);
+        if (!pause) break;
+
+        // Suspend until the user picks Approve / Approve for session /
+        // Deny / Cancel, or the abort controller fires.
+        setPendingApproval(pause);
+        const decision = await new Promise<{
+          decision: "approve" | "deny" | "cancel";
+          persist: boolean;
+        }>((resolve) => {
+          approvalDeciderRef.current = resolve;
+        });
+        approvalDeciderRef.current = null;
+        setPendingApproval(null);
+
+        if (decision.decision === "cancel") {
+          cancelled = true;
+          break;
+        }
+
+        // Update the session-approved allowlist BEFORE the resume POST
+        // so the server can skip approval for subsequent same-named calls
+        // in this loop run.
+        let approvedNext = sessionApprovedTools;
+        if (decision.persist) {
+          approvedNext = new Set([...sessionApprovedTools, pause.toolName]);
+          setSessionApprovedTools(approvedNext);
+        }
+        nextFetch = {
+          url: "/api/chat/resume",
+          body: {
+            token: pause.token,
+            decision: decision.decision,
+            autoApproveTools: [...approvedNext],
+          },
+        };
       }
 
       while (assembled.length) {
@@ -481,7 +583,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       setMessages([...assembled]);
       await persist(sid, assembled, lastTokens);
 
-      if (autoSpeakRef.current) {
+      if (autoSpeakRef.current && !cancelled) {
         const finalAssistant = [...assembled]
           .reverse()
           .find((m) => m.role === "assistant" && m.content?.trim());
@@ -510,6 +612,14 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }
 
   const handleAbort = useCallback(() => {
+    // If we're paused waiting for approval, resolve that first as a cancel
+    // so handleSend's await unblocks and exits the loop cleanly.
+    const decider = approvalDeciderRef.current;
+    if (decider) {
+      approvalDeciderRef.current = null;
+      setPendingApproval(null);
+      decider({ decision: "cancel", persist: false });
+    }
     abortRef.current?.abort();
   }, []);
 
@@ -551,57 +661,112 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }
 
   async function compact() {
-    if (!sessionId || messages.length < 6) return;
-    if (!confirm("Summarise older messages into a single note?")) return;
+    if (!sessionId || messages.length < 6 || streaming) return;
+
     const keep = messages.slice(-4);
     const older = messages.slice(0, messages.length - 4);
-    const summary = older
-      .filter((m) => m.role !== "tool")
-      .map((m) => `[${m.role}] ${m.content}`)
-      .join("\n\n")
-      .slice(0, 6000);
-    const summariserModel =
-      models.find((m) => m.name.includes("9b_128k"))?.name ?? activeModel;
-    const r = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: summariserModel,
-        system:
-          "Summarise the chat history into a concise bullet list: key facts, decisions, open questions. Preserve names/IDs. ≤12 bullets.",
-        messages: [{ role: "user", content: summary }],
-        think: false,
-      }),
-    });
-    if (!r.body) return;
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = "";
-    let text = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const events = buf.split("\n\n");
-      buf = events.pop() ?? "";
-      for (const ev of events) {
-        const line = ev.replace(/^data:\s?/, "");
-        if (!line.trim()) continue;
-        try {
-          const obj = JSON.parse(line);
-          if (obj.type === "content") text += obj.delta;
-        } catch {}
-      }
-    }
-    const compactMsg: ChatMessage = {
-      id: uid(),
+    const placeholderId = uid();
+    const makePlaceholder = (streamedText: string): ChatMessage => ({
+      id: placeholderId,
       role: "system",
-      content: `[Earlier conversation summarised]\n${text}`,
+      content: streamedText
+        ? `⏳ Summarising ${older.length} earlier messages…\n\n${streamedText}`
+        : `⏳ Summarising ${older.length} earlier messages…`,
       createdAt: Date.now(),
-    };
-    const next = [compactMsg, ...keep];
-    setMessages(next);
-    await persist(sessionId, next, ctx);
+    });
+
+    // Lock UI + render placeholder IMMEDIATELY in a single React batch so
+    // the user sees it the instant they click, not after a network hop.
+    setStreaming(true);
+    streamingRef.current = true;
+    setMessages([makePlaceholder(""), ...keep]);
+
+    let text = "";
+    try {
+      const summaryText = older
+        .filter((m) => m.role !== "tool")
+        .map((m) => `[${m.role}] ${m.content}`)
+        .join("\n\n")
+        .slice(0, 15000);
+      const summariserModel =
+        models.find((m) => m.name.includes("9b_128k"))?.name ?? activeModel;
+      const r = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: summariserModel,
+          system:
+            "Summarise the chat history into a bullet list. Cover: key facts about the user or the work, decisions made, open questions, unresolved errors. Preserve names, IDs, file paths, commit hashes verbatim. Use short bullets (one sentence each). Scale the length to the input: 6-8 bullets for short chats, up to 25 for long multi-topic ones. Group related bullets under short italic sub-headings if the chat spans multiple topics.",
+          messages: [{ role: "user", content: summaryText }],
+          think: false,
+        }),
+      });
+      if (!r.ok || !r.body) {
+        throw new Error(`summariser returned HTTP ${r.status}`);
+      }
+
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() ?? "";
+        for (const ev of events) {
+          const line = ev.replace(/^data:\s?/, "");
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line);
+            if (obj.type === "content") {
+              text += String(obj.delta ?? "");
+              const partial = makePlaceholder(text);
+              setMessages((prev) =>
+                prev.map((m) => (m.id === placeholderId ? partial : m)),
+              );
+            } else if (obj.type === "error") {
+              throw new Error(
+                `summariser error: ${String(obj.message ?? "unknown")}`,
+              );
+            }
+          } catch (inner) {
+            // Only re-throw if it's one we created — JSON.parse errors
+            // should be swallowed so a single malformed chunk doesn't kill
+            // the stream.
+            if (inner instanceof Error && inner.message.startsWith("summariser error")) {
+              throw inner;
+            }
+          }
+        }
+      }
+
+      const clean = text.trim();
+      if (!clean) throw new Error("summariser returned empty content");
+
+      const compactMsg: ChatMessage = {
+        id: placeholderId,
+        role: "system",
+        content: `Earlier conversation summarised — ${older.length} turns → 1 note\n\n${clean}`,
+        createdAt: Date.now(),
+      };
+      const next = [compactMsg, ...keep];
+      setMessages(next);
+      await persist(sessionId, next, ctx);
+    } catch (e) {
+      // Revert — remove the placeholder, restore original messages — and
+      // surface the failure inline as a system note (no browser alert).
+      const err: ChatMessage = {
+        id: uid(),
+        role: "system",
+        content: `⚠ Compact failed: ${(e as Error).message}. Chat history was restored.`,
+        createdAt: Date.now(),
+      };
+      setMessages([...older, ...keep, err]);
+    } finally {
+      setStreaming(false);
+      streamingRef.current = false;
+    }
   }
 
   async function onDropFiles(files: FileList) {
@@ -776,9 +941,17 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             </a>
             <button
               onClick={compact}
-              disabled={!sessionId || messages.length < 6}
-              className="tt flex items-center gap-1 rounded border border-border px-2 py-1 font-sans text-[11px] text-fg-muted hover:text-fg disabled:opacity-40"
-              data-tip="Summarise older messages"
+              disabled={!sessionId || messages.length < 6 || streaming}
+              className="tt flex items-center gap-1 rounded border border-border px-2 py-1 font-sans text-[11px] text-fg-muted hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+              data-tip={
+                !sessionId
+                  ? "No session"
+                  : messages.length < 6
+                    ? "Needs 6+ messages to compact"
+                    : streaming
+                      ? "Busy…"
+                      : "Summarise older messages into a single note"
+              }
             >
               <Archive className="h-3 w-3" />
               Compact
@@ -895,6 +1068,15 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   </div>
                 ));
               })()}
+              {pendingApproval && (
+                <ToolApprovalCard
+                  toolName={pendingApproval.toolName}
+                  args={pendingApproval.arguments}
+                  onApproveOnce={() => decideApproval("approve", false)}
+                  onApproveSession={() => decideApproval("approve", true)}
+                  onDeny={() => decideApproval("deny", false)}
+                />
+              )}
             </div>
           </div>
 
