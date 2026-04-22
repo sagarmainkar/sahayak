@@ -250,13 +250,19 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     new Set(),
   );
   const approvalDeciderRef = useRef<
-    | ((d: { decision: "approve" | "deny" | "cancel"; persist: boolean }) => void)
+    | ((d: {
+        decision: "approve" | "deny" | "cancel";
+        /** "none" = this call only · "tool" = skip for this tool name
+         *  for the rest of the browser session · "all" = skip for every
+         *  tool for the rest of the browser session. */
+        persist: "none" | "tool" | "all";
+      }) => void)
     | null
   >(null);
 
   function decideApproval(
     decision: "approve" | "deny" | "cancel",
-    persist: boolean,
+    persist: "none" | "tool" | "all",
   ) {
     const d = approvalDeciderRef.current;
     approvalDeciderRef.current = null;
@@ -749,11 +755,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         if (!pause) break;
 
         // Suspend until the user picks Approve / Approve for session /
-        // Deny / Cancel, or the abort controller fires.
+        // Approve all / Deny / Cancel, or the abort controller fires.
         setPendingApproval(pause);
         const decision = await new Promise<{
           decision: "approve" | "deny" | "cancel";
-          persist: boolean;
+          persist: "none" | "tool" | "all";
         }>((resolve) => {
           approvalDeciderRef.current = resolve;
         });
@@ -769,8 +775,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         // so the server can skip approval for subsequent same-named calls
         // in this loop run.
         let approvedNext = sessionApprovedTools;
-        if (decision.persist) {
+        if (decision.persist === "tool") {
           approvedNext = new Set([...sessionApprovedTools, pause.toolName]);
+          setSessionApprovedTools(approvedNext);
+        } else if (decision.persist === "all") {
+          approvedNext = new Set(allTools.map((t) => t.name));
           setSessionApprovedTools(approvedNext);
         }
         nextFetch = {
@@ -840,7 +849,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     if (decider) {
       approvalDeciderRef.current = null;
       setPendingApproval(null);
-      decider({ decision: "cancel", persist: false });
+      decider({ decision: "cancel", persist: "none" });
     }
     abortRef.current?.abort();
   }, []);
@@ -1360,9 +1369,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 <ToolApprovalCard
                   toolName={pendingApproval.toolName}
                   args={pendingApproval.arguments}
-                  onApproveOnce={() => decideApproval("approve", false)}
-                  onApproveSession={() => decideApproval("approve", true)}
-                  onDeny={() => decideApproval("deny", false)}
+                  onApproveOnce={() => decideApproval("approve", "none")}
+                  onApproveSession={() => decideApproval("approve", "tool")}
+                  onApproveAllSession={() =>
+                    decideApproval("approve", "all")
+                  }
+                  onDeny={() => decideApproval("deny", "none")}
                 />
               )}
             </div>

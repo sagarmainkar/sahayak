@@ -1,18 +1,20 @@
 "use client";
 
-import { ShieldAlert, Check, CheckCheck, X } from "lucide-react";
+import { ShieldAlert, Check, CheckCheck, Infinity as InfinityIcon, X } from "lucide-react";
 
 export function ToolApprovalCard({
   toolName,
   args,
   onApproveOnce,
   onApproveSession,
+  onApproveAllSession,
   onDeny,
 }: {
   toolName: string;
   args: Record<string, unknown>;
   onApproveOnce: () => void;
   onApproveSession: () => void;
+  onApproveAllSession?: () => void;
   onDeny: () => void;
 }) {
   const pretty = JSON.stringify(args, null, 2);
@@ -39,10 +41,21 @@ export function ToolApprovalCard({
           <button
             onClick={onApproveSession}
             className="flex items-center gap-1 rounded border border-border bg-bg px-2.5 py-1 font-sans text-[11.5px] text-fg hover:border-accent hover:bg-accent/10"
+            title="Skip approval for this tool name for the rest of this browser session"
           >
             <CheckCheck className="h-3 w-3" />
-            Approve for session
+            Approve this tool for session
           </button>
+          {onApproveAllSession && (
+            <button
+              onClick={onApproveAllSession}
+              className="flex items-center gap-1 rounded border border-border bg-bg px-2.5 py-1 font-sans text-[11.5px] text-fg hover:border-accent hover:bg-accent/10"
+              title="Skip approval for every tool for the rest of this browser session"
+            >
+              <InfinityIcon className="h-3 w-3" />
+              Approve all tools for session
+            </button>
+          )}
           <button
             onClick={onDeny}
             className="flex items-center gap-1 rounded border border-border bg-bg px-2.5 py-1 font-sans text-[11.5px] text-red-500 hover:border-red-500 hover:bg-red-500/5"

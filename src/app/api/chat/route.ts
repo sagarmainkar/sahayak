@@ -68,7 +68,7 @@ export async function POST(req: Request) {
             enabledTools: enabled,
             autoApproveTools: body.autoApproveTools ?? [],
             requireApproval: body.requireApproval ?? DEFAULT_REQUIRE_APPROVAL,
-            maxToolTurns: body.maxToolTurns ?? 8,
+            maxToolTurns: body.maxToolTurns ?? 100,
           },
           controller,
         );
@@ -88,7 +88,7 @@ export async function POST(req: Request) {
           enabledTools: enabled,
           autoApproveTools: body.autoApproveTools ?? [],
           requireApproval: body.requireApproval ?? DEFAULT_REQUIRE_APPROVAL,
-          maxToolTurns: body.maxToolTurns ?? 8,
+          maxToolTurns: body.maxToolTurns ?? 100,
           artifactsEnabled: !!body.artifactsEnabled,
         },
         controller,
