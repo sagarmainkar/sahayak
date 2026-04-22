@@ -44,7 +44,10 @@ export function ArtifactPanel({
     const iframe = iframeRef.current;
     const doc = iframe?.contentDocument;
     const target = doc?.body;
-    if (!iframe || !doc || !target) return;
+    if (!iframe || !doc || !target) {
+      console.error("[artifact screenshot] Cannot access iframe contentDocument — sandbox may block same-origin access");
+      return;
+    }
     setCapturing(true);
     try {
       const width = target.scrollWidth || iframe.clientWidth;
@@ -387,7 +390,7 @@ export function ArtifactPanel({
             key={`html-${openId}-${refreshKey}`}
             ref={iframeRef}
             srcDoc={artifact?.source ?? ""}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             className="h-full w-full border-0 bg-bg"
             title={artifact?.title ?? "artifact"}
           />
@@ -396,7 +399,7 @@ export function ArtifactPanel({
             key={`jsx-${openId}-${refreshKey}`}
             ref={iframeRef}
             src="/artifact-runtime.html"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
             className="h-full w-full border-0 bg-bg"
             title={artifact?.title ?? "artifact"}
           />
