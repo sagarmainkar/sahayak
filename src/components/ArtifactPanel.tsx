@@ -5,6 +5,7 @@ import {
   X, RefreshCw, Code2, Download, Copy, Maximize2, Minimize2, Check,
   Wand2, Pin, Camera, Loader2,
 } from "lucide-react";
+import { toPng } from "html-to-image";
 import { useArtifactPanel } from "./ArtifactPanelContext";
 import type { Artifact, MsgAttachment } from "@/lib/types";
 import { cn } from "@/lib/cn";
@@ -46,7 +47,6 @@ export function ArtifactPanel({
     if (!iframe || !doc || !target) return;
     setCapturing(true);
     try {
-      const { toPng } = await import("html-to-image");
       const width = target.scrollWidth || iframe.clientWidth;
       const height = target.scrollHeight || iframe.clientHeight;
       const dataUrl = await toPng(target, {
