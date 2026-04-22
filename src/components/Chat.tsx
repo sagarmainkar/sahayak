@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Plus, Pencil, Trash2, Archive, Wrench, PanelLeft, Download,
-  RotateCcw, Volume2, Square, Loader2, Pin, FileText,
+  RotateCcw, Volume2, Square, Loader2, Pin, FileText, Search, X as XIcon,
 } from "lucide-react";
 import { useSpeaker } from "@/lib/useSpeaker";
 import { Markdown } from "./Markdown";
@@ -27,6 +27,21 @@ import type {
 } from "@/lib/types";
 
 type Props = { assistantId: string; sessionId?: string };
+
+/** One /api/search result. Shape matches the endpoint's payload. */
+type SearchHit = {
+  sessionId: string;
+  assistantId: string;
+  title: string;
+  updatedAt: number;
+  matchCount: number;
+  matches: {
+    role: "user" | "assistant" | "tool" | "system";
+    snippet: string;
+    matchStart: number;
+    matchLen: number;
+  }[];
+};
 
 function uid() {
   return (
@@ -255,6 +270,17 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   // one-shot signal.
   const [pendingComposerAttachment, setPendingComposerAttachment] =
     useState<MsgAttachment | null>(null);
+
+  // Cross-session search state. Query is what's in the input; hits is
+  // the server response. When query is non-empty, the sidebar shows
+  // hits instead of the normal session list.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchHits, setSearchHits] = useState<SearchHit[] | null>(null);
+  const [searchScope, setSearchScope] = useState<"current" | "all">(
+    "current",
+  );
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const approvalDeciderRef = useRef<
     | ((d: {
         decision: "approve" | "deny" | "cancel";
@@ -355,6 +381,69 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       behavior: "smooth",
     });
   }, [messages.length, streaming]);
+
+  // Debounced cross-session search. < 2 chars = no request, clear hits.
+  // Scope + assistant change without waiting for debounce since those
+  // imply the user already committed.
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setSearchHits(null);
+      setSearchLoading(false);
+      return;
+    }
+    setSearchLoading(true);
+    const ctrl = new AbortController();
+    const t = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          q,
+          assistant: assistantId,
+          scope: searchScope,
+        });
+        const r = await fetch(`/api/search?${params}`, {
+          signal: ctrl.signal,
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = (await r.json()) as { hits: SearchHit[] };
+        setSearchHits(j.hits);
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") {
+          console.error("[search]", e);
+          setSearchHits([]);
+        }
+      } finally {
+        setSearchLoading(false);
+      }
+    }, 150);
+    return () => {
+      ctrl.abort();
+      window.clearTimeout(t);
+    };
+  }, [searchQuery, searchScope, assistantId]);
+
+  // Cmd/Ctrl-K focuses the sidebar search. Works anywhere in Chat unless
+  // the user is typing in a textarea/input/contentEditable — we let
+  // shortcuts inside those bubble through to their own handlers.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const hot = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      if (!hot) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName?.toLowerCase();
+      if (tag === "textarea" || tag === "input") {
+        // Let the composer textarea keep Cmd-K unless we explicitly want
+        // it — override only when the focus is OUR search input. That
+        // way the Esc/arrow affordances don't collide.
+        if (t !== searchInputRef.current) return;
+      }
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const ctxMax = currentModel?.contextLength ?? null;
   const ctxPct = ctxMax ? Math.min(100, (ctx.prompt / ctxMax) * 100) : 0;
@@ -1088,6 +1177,66 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               <Pencil className="h-3.5 w-3.5" />
             </Link>
           </div>
+          <div className="mx-2 mt-2 flex items-center gap-1 rounded border border-border bg-bg px-2 py-1.5 focus-within:border-accent">
+            <Search className="h-3 w-3 flex-shrink-0 text-fg-subtle" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setSearchQuery("");
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Search chats…"
+              className="flex-1 bg-transparent font-sans text-[12px] text-fg placeholder:text-fg-subtle/70 focus:outline-none"
+            />
+            {searchQuery ? (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="tt text-fg-subtle hover:text-fg"
+                data-tip="Clear"
+                aria-label="Clear search"
+              >
+                <XIcon className="h-3 w-3" />
+              </button>
+            ) : (
+              <span className="hidden font-mono text-[9px] text-fg-subtle sm:inline">
+                ⌘K
+              </span>
+            )}
+          </div>
+          {searchQuery.trim().length >= 2 && (
+            <div className="mx-2 mt-1 flex items-center gap-1 text-[10.5px]">
+              <button
+                onClick={() => setSearchScope("current")}
+                className={cn(
+                  "rounded px-1.5 py-[2px] font-mono uppercase tracking-wider",
+                  searchScope === "current"
+                    ? "bg-accent-soft text-accent"
+                    : "text-fg-subtle hover:text-fg",
+                )}
+              >
+                this assistant
+              </button>
+              <button
+                onClick={() => setSearchScope("all")}
+                className={cn(
+                  "rounded px-1.5 py-[2px] font-mono uppercase tracking-wider",
+                  searchScope === "all"
+                    ? "bg-accent-soft text-accent"
+                    : "text-fg-subtle hover:text-fg",
+                )}
+              >
+                all
+              </button>
+              {searchLoading && (
+                <Loader2 className="ml-auto h-3 w-3 animate-spin text-fg-subtle" />
+              )}
+            </div>
+          )}
           <button
             onClick={newSession}
             className="mx-2 mt-2 flex items-center gap-2 rounded border border-dashed border-border px-3 py-2 font-sans text-[12px] text-fg-muted hover:border-accent hover:text-fg"
@@ -1096,12 +1245,78 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             New chat
           </button>
           <div className="flex-1 overflow-y-auto px-2 py-2">
-            {sessions.length === 0 && (
-              <div className="px-2 py-4 text-center font-serif text-[12px] italic text-fg-subtle">
-                no chats yet
-              </div>
-            )}
-            {sessions.map((s) => (
+            {searchHits !== null ? (
+              searchHits.length === 0 ? (
+                <div className="px-2 py-4 text-center font-serif text-[12px] italic text-fg-subtle">
+                  {searchLoading ? "searchLoading…" : "no matches"}
+                </div>
+              ) : (
+                searchHits.map((h) => {
+                  const crossAssistant = h.assistantId !== assistantId;
+                  const goto = () => {
+                    if (crossAssistant) {
+                      // Different assistant → full navigation (fresh
+                      // Chat component, loads assistant + session).
+                      window.location.href = `/chat/${h.assistantId}/${h.sessionId}`;
+                      return;
+                    }
+                    setSessionId(h.sessionId);
+                    window.history.replaceState(
+                      null,
+                      "",
+                      `/chat/${assistantId}/${h.sessionId}`,
+                    );
+                    setSearchQuery("");
+                  };
+                  const firstMatch = h.matches[0];
+                  return (
+                    <button
+                      key={`${h.assistantId}/${h.sessionId}`}
+                      onClick={goto}
+                      className={cn(
+                        "group mb-1 flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-bg-muted/70",
+                        h.sessionId === sessionId && "bg-bg-muted",
+                      )}
+                    >
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="min-w-0 flex-1 truncate font-serif text-[13px] text-fg">
+                          {h.title || "Untitled"}
+                        </span>
+                        <span className="flex-shrink-0 font-mono text-[9px] text-fg-subtle">
+                          ×{h.matchCount}
+                        </span>
+                      </div>
+                      {firstMatch && (
+                        <div className="line-clamp-2 font-serif text-[11.5px] italic text-fg-muted">
+                          {firstMatch.snippet.slice(0, firstMatch.matchStart)}
+                          <mark className="bg-accent-soft px-[1px] text-accent not-italic">
+                            {firstMatch.snippet.slice(
+                              firstMatch.matchStart,
+                              firstMatch.matchStart + firstMatch.matchLen,
+                            )}
+                          </mark>
+                          {firstMatch.snippet.slice(
+                            firstMatch.matchStart + firstMatch.matchLen,
+                          )}
+                        </div>
+                      )}
+                      {crossAssistant && (
+                        <div className="font-mono text-[9.5px] uppercase tracking-wider text-fg-subtle">
+                          ↗ other assistant
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
+              )
+            ) : (
+              <>
+                {sessions.length === 0 && (
+                  <div className="px-2 py-4 text-center font-serif text-[12px] italic text-fg-subtle">
+                    no chats yet
+                  </div>
+                )}
+                {sessions.map((s) => (
               <div
                 key={s.id}
                 className={cn(
@@ -1177,6 +1392,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 </button>
               </div>
             ))}
+              </>
+            )}
           </div>
         </aside>
       )}
