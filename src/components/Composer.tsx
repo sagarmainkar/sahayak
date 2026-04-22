@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Paperclip,
   Send,
@@ -14,9 +14,11 @@ import {
   FilePlus,
   Lock,
   Unlock,
+  LayoutTemplate,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { MEMORY_TYPES, type MemoryType, type MsgAttachment } from "@/lib/types";
+import { TEMPLATE_META } from "@/lib/templates";
 
 type SlashOutcome =
   | { kind: "saved"; type: MemoryType; content: string }
@@ -99,6 +101,7 @@ type Props = {
     text: string,
     attachments: MsgAttachment[],
     artifactsEnabled: boolean,
+    templateId: string | null,
   ) => void;
   onAbort: () => void;
   autoSpeak: boolean;
@@ -204,6 +207,24 @@ export function Composer({
   const [uploading, setUploading] = useState(0);
   // Session-sticky: stays on across turns until toggled off.
   const [artifactsEnabled, setArtifactsEnabled] = useState(false);
+  // Per-turn: cleared after send. Null = no template active.
+  const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const templatePickerRef = useRef<HTMLDivElement | null>(null);
+  // Click-outside to close the picker popover.
+  useEffect(() => {
+    if (!showTemplatePicker) return;
+    const onDown = (e: MouseEvent) => {
+      if (
+        templatePickerRef.current &&
+        !templatePickerRef.current.contains(e.target as Node)
+      ) {
+        setShowTemplatePicker(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [showTemplatePicker]);
   const [slashNote, setSlashNote] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -316,7 +337,8 @@ export function Composer({
       }
     }
 
-    onSend(text, attachments, artifactsEnabled);
+    onSend(text, attachments, artifactsEnabled, activeTemplate);
+    setActiveTemplate(null);
     clear();
   }
 
@@ -504,6 +526,28 @@ export function Composer({
             )}
           </div>
         )}
+        {activeTemplate &&
+          (() => {
+            const t = TEMPLATE_META.find((x) => x.id === activeTemplate);
+            if (!t) return null;
+            return (
+              <div className="mb-1.5 inline-flex items-center gap-1.5 self-start rounded-full border border-accent/50 bg-accent-soft/40 px-2.5 py-1 font-sans text-[11px] text-fg">
+                <span>{t.icon}</span>
+                <span>
+                  response will use the{" "}
+                  <span className="font-medium">{t.name}</span> template
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveTemplate(null)}
+                  className="ml-0.5 rounded-full p-0.5 text-fg-subtle hover:bg-bg-muted hover:text-fg"
+                  aria-label="Remove template"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })()}
         <div className="flex items-end gap-2 rounded-lg border border-border bg-bg px-3 py-2 focus-within:border-accent">
           <label
             className="tt tt-above flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
@@ -555,6 +599,77 @@ export function Composer({
           >
             <Sparkles className="h-3.5 w-3.5" />
           </button>
+          <div className="relative" ref={templatePickerRef}>
+            <button
+              type="button"
+              onClick={() => setShowTemplatePicker((v) => !v)}
+              className={cn(
+                "tt tt-above flex items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
+                activeTemplate
+                  ? "text-accent"
+                  : "text-fg-subtle hover:text-fg",
+              )}
+              data-tip={
+                activeTemplate
+                  ? "Template active — response will render structured"
+                  : "Use a response template"
+              }
+              aria-pressed={!!activeTemplate}
+              aria-expanded={showTemplatePicker}
+            >
+              <LayoutTemplate className="h-3.5 w-3.5" />
+            </button>
+            {showTemplatePicker && (
+              <div className="absolute bottom-full left-0 z-20 mb-2 w-[320px] rounded-lg border border-border bg-bg-elev p-1.5 shadow-lg">
+                <div className="byline px-2 pb-1.5 pt-1">
+                  response templates
+                </div>
+                <div className="flex flex-col">
+                  {TEMPLATE_META.map((t) => {
+                    const active = activeTemplate === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTemplate(active ? null : t.id);
+                          setShowTemplatePicker(false);
+                        }}
+                        className={cn(
+                          "flex items-start gap-2.5 rounded-sm px-2 py-1.5 text-left transition-colors",
+                          active
+                            ? "bg-accent-soft/60"
+                            : "hover:bg-bg-muted",
+                        )}
+                      >
+                        <span className="mt-[1px] text-[16px]" aria-hidden>
+                          {t.icon}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="font-sans text-[12.5px] font-medium text-fg">
+                              {t.name}
+                            </span>
+                            {active && (
+                              <span className="font-mono text-[9.5px] uppercase tracking-wider text-accent">
+                                active
+                              </span>
+                            )}
+                          </div>
+                          <div className="font-serif text-[11.5px] italic text-fg-muted">
+                            {t.description}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-1 border-t border-border px-2 py-1.5 font-serif text-[11px] italic text-fg-subtle">
+                  applies to the next message only
+                </div>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             onClick={recording ? stopRecording : startRecording}

@@ -14,6 +14,7 @@ import { CapabilityPills } from "./CapabilityPills";
 import { Thinking } from "./Thinking";
 import { TurnTimeline } from "./TurnTimeline";
 import type { TurnTimeline as TTimeline } from "@/lib/types";
+import { TEMPLATES_BY_ID } from "@/lib/templates";
 import { ToolCard } from "./ToolCard";
 import { Composer } from "./Composer";
 import { ArtifactPanel } from "./ArtifactPanel";
@@ -386,6 +387,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     text: string,
     attachments: MsgAttachment[],
     artifactsEnabled: boolean,
+    templateId: string | null = null,
   ) {
     if (streaming) return;
     if (!assistant) return;
@@ -515,9 +517,18 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     };
     startNewAssistant();
 
+    // Per-turn template augmentation: append the chosen template's
+    // system prompt to the assistant's base prompt. Server doesn't need
+    // to know — it just sees a longer `system`. Client-side Markdown
+    // detects `template:<id>` fences and renders via TemplateBlock.
+    const tmpl = templateId ? TEMPLATES_BY_ID[templateId] : null;
+    const systemWithTemplate = tmpl
+      ? `${assistant.systemPrompt}\n\n---\n\n${tmpl.systemPrompt}`
+      : assistant.systemPrompt;
+
     const initialPayload = {
       model: activeModel,
-      system: assistant.systemPrompt,
+      system: systemWithTemplate,
       messages: nextMessages.map((m) => ({
         role: m.role,
         content: m.content,

@@ -9,6 +9,7 @@ import { Check, Copy } from "lucide-react";
 import { LinkCard } from "./LinkCard";
 import { Carousel } from "./Carousel";
 import { ArtifactBlock } from "./ArtifactBlock";
+import { TemplateBlock } from "./TemplateBlock";
 import { SvgBlock } from "./SvgBlock";
 import { MermaidBlock } from "./MermaidBlock";
 
@@ -166,6 +167,10 @@ export function Markdown({
             }
             if (lang === "mermaid") {
               return <MermaidBlock source={src} />;
+            }
+            if (lang.startsWith("template:")) {
+              const tid = lang.slice("template:".length);
+              return <TemplateBlock templateId={tid} source={src} />;
             }
             // Full HTML documents route to the artifact iframe (srcdoc path).
             // Bare/partial HTML snippets fall through to normal code rendering
