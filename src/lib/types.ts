@@ -45,6 +45,27 @@ export type MsgAttachment =
       originalName?: string;
     };
 
+export type TurnPhase =
+  | { kind: "thinking"; startedAt: number; endedAt?: number }
+  | { kind: "writing"; startedAt: number; endedAt?: number }
+  | {
+      kind: "tool";
+      name: string;
+      callId: string;
+      startedAt: number;
+      endedAt?: number;
+      ok?: boolean;
+    };
+
+/** Retrospective of what happened during a single assistant turn — thinking,
+ *  writing, tool-call phases — derived from the SSE stream. Stored on the
+ *  assistant ChatMessage so it renders after reloads. */
+export type TurnTimeline = {
+  startedAt: number;
+  endedAt?: number;
+  phases: TurnPhase[];
+};
+
 export type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system" | "tool";
@@ -56,6 +77,9 @@ export type ChatMessage = {
    *  user can see the URL fetched, query searched, command executed, etc.
    *  Only set on role:"tool" messages. */
   toolArgs?: Record<string, unknown>;
+  /** Phase timeline for a single assistant turn. Only on assistant
+   *  messages. Persists across reloads. */
+  timeline?: TurnTimeline;
   attachments?: MsgAttachment[];
   createdAt: number;
 };

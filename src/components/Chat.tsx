@@ -12,6 +12,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { StyleSwitcher } from "./StyleSwitcher";
 import { CapabilityPills } from "./CapabilityPills";
 import { Thinking } from "./Thinking";
+import { TurnTimeline } from "./TurnTimeline";
+import type { TurnTimeline as TTimeline } from "@/lib/types";
 import { ToolCard } from "./ToolCard";
 import { Composer } from "./Composer";
 import { ArtifactPanel } from "./ArtifactPanel";
@@ -160,6 +162,9 @@ const Turn = memo(function Turn({
       </header>
 
       <div className="assistant-edge">
+        {m.timeline && m.timeline.phases.length > 0 && (
+          <TurnTimeline timeline={m.timeline} live={streaming} />
+        )}
         {m.thinking && (
           <Thinking text={m.thinking} streaming={streaming && !m.content} />
         )}
@@ -402,18 +407,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
     const assembled: ChatMessage[] = [...nextMessages];
     let curIndex = -1;
-    const startNewAssistant = () => {
-      const a: ChatMessage = {
-        id: uid(),
-        role: "assistant",
-        content: "",
-        thinking: "",
-        createdAt: Date.now(),
-      };
-      assembled.push(a);
-      curIndex = assembled.length - 1;
-      setMessages([...assembled]);
-    };
     // High-volume backends (pi-ai over Ollama /v1) emit character-level
     // deltas — a single streamed artifact can fire thousands of patchCur
     // calls. Without batching, React hits "Maximum update depth exceeded".
@@ -421,14 +414,104 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     // state; coalesce the setMessages notification to one per animation
     // frame (~60 Hz).
     let pendingFlush: number | null = null;
-    const patchCur = (patch: Partial<ChatMessage>) => {
-      if (curIndex < 0) return;
-      assembled[curIndex] = { ...assembled[curIndex], ...patch };
+    const scheduleFlush = () => {
       if (pendingFlush !== null) return;
       pendingFlush = requestAnimationFrame(() => {
         pendingFlush = null;
         setMessages([...assembled]);
       });
+    };
+    const patchCur = (patch: Partial<ChatMessage>) => {
+      if (curIndex < 0) return;
+      assembled[curIndex] = { ...assembled[curIndex], ...patch };
+      scheduleFlush();
+    };
+
+    // Timeline reducer — derives a phase trail from the SSE event stream
+    // and stores it on the relevant assistant message. Tool phases are
+    // tracked by their callId so parallel tools can close out of order.
+    const toolOwner = new Map<string, number>();
+    const now = () => Date.now();
+    const updateTimelineAt = (
+      idx: number,
+      fn: (tl: TTimeline) => TTimeline,
+    ) => {
+      if (idx < 0 || idx >= assembled.length) return;
+      const cur = assembled[idx];
+      if (cur.role !== "assistant") return;
+      const tl = cur.timeline ?? { startedAt: Date.now(), phases: [] };
+      assembled[idx] = { ...cur, timeline: fn(tl) };
+      scheduleFlush();
+    };
+    const ensureNonToolPhase = (kind: "thinking" | "writing") => {
+      updateTimelineAt(curIndex, (tl) => {
+        const phases = [...tl.phases];
+        const last = phases[phases.length - 1];
+        if (last && last.kind === kind && !last.endedAt) return tl;
+        if (last && !last.endedAt && last.kind !== "tool") {
+          phases[phases.length - 1] = { ...last, endedAt: now() };
+        }
+        phases.push({ kind, startedAt: now() });
+        return { ...tl, phases };
+      });
+    };
+    const openToolPhase = (name: string, callId: string) => {
+      toolOwner.set(callId, curIndex);
+      updateTimelineAt(curIndex, (tl) => {
+        const phases = [...tl.phases];
+        const last = phases[phases.length - 1];
+        if (last && !last.endedAt && last.kind !== "tool") {
+          phases[phases.length - 1] = { ...last, endedAt: now() };
+        }
+        phases.push({ kind: "tool", name, callId, startedAt: now() });
+        return { ...tl, phases };
+      });
+    };
+    const closeToolPhase = (callId: string, ok: boolean) => {
+      const idx = toolOwner.get(callId);
+      if (idx === undefined) return;
+      toolOwner.delete(callId);
+      updateTimelineAt(idx, (tl) => {
+        const phases = tl.phases.map((p) =>
+          p.kind === "tool" && p.callId === callId && !p.endedAt
+            ? { ...p, endedAt: now(), ok }
+            : p,
+        );
+        return { ...tl, phases };
+      });
+    };
+    const closeTimelineAt = (idx: number) => {
+      updateTimelineAt(idx, (tl) => ({
+        ...tl,
+        endedAt: now(),
+        phases: tl.phases.map((p) =>
+          p.endedAt === undefined ? { ...p, endedAt: now() } : p,
+        ),
+      }));
+    };
+
+    const startNewAssistant = () => {
+      // Close the outgoing turn's timeline so its open phases get a final
+      // timestamp. Without this, paused/interrupted turns would render
+      // with perpetually-open phases on reload.
+      if (
+        curIndex >= 0 &&
+        curIndex < assembled.length &&
+        assembled[curIndex]?.role === "assistant"
+      ) {
+        closeTimelineAt(curIndex);
+      }
+      const a: ChatMessage = {
+        id: uid(),
+        role: "assistant",
+        content: "",
+        thinking: "",
+        createdAt: Date.now(),
+        timeline: { startedAt: Date.now(), phases: [] },
+      };
+      assembled.push(a);
+      curIndex = assembled.length - 1;
+      setMessages([...assembled]);
     };
     startNewAssistant();
 
@@ -493,9 +576,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           }
           const t = obj.type as string;
           if (t === "content") {
+            ensureNonToolPhase("writing");
             const cur = assembled[curIndex];
             patchCur({ content: cur.content + String(obj.delta ?? "") });
           } else if (t === "thinking") {
+            ensureNonToolPhase("thinking");
             const cur = assembled[curIndex];
             patchCur({
               thinking: (cur.thinking ?? "") + String(obj.delta ?? ""),
@@ -525,11 +610,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             // tool_call events back-to-back, and a position-based match
             // overwrites the same card while the others spin forever.
             const callId = String(obj.id ?? uid());
+            const toolName = String(obj.name ?? "");
+            openToolPhase(toolName, callId);
             assembled.push({
               id: callId,
               role: "tool",
               content: "(running…)",
-              toolName: String(obj.name ?? ""),
+              toolName,
               toolArgs:
                 obj.arguments &&
                 typeof obj.arguments === "object"
@@ -540,6 +627,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             setMessages([...assembled]);
           } else if (t === "tool_result") {
             const callId = obj.id ? String(obj.id) : null;
+            const ok = Boolean(obj.ok);
+            if (callId) closeToolPhase(callId, ok);
             for (let i = assembled.length - 1; i >= 0; i--) {
               const m = assembled[i];
               const match = callId
@@ -566,7 +655,15 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               !tail.thinking &&
               (!tail.toolCalls || tail.toolCalls.length === 0);
             if (tailIsEmptyAssistant) {
-              curIndex = assembled.length - 1;
+              const newIdx = assembled.length - 1;
+              if (
+                curIndex >= 0 &&
+                curIndex !== newIdx &&
+                assembled[curIndex]?.role === "assistant"
+              ) {
+                closeTimelineAt(curIndex);
+              }
+              curIndex = newIdx;
             } else {
               startNewAssistant();
             }
@@ -653,6 +750,15 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           (!last.toolCalls || last.toolCalls.length === 0);
         if (!empty) break;
         assembled.pop();
+      }
+      // Close the final turn's timeline so open phases get stamped.
+      // Skip if the trim above popped the tail we were writing into.
+      if (
+        curIndex >= 0 &&
+        curIndex < assembled.length &&
+        assembled[curIndex]?.role === "assistant"
+      ) {
+        closeTimelineAt(curIndex);
       }
       setMessages([...assembled]);
       await persist(sid, assembled, lastTokens);
