@@ -31,6 +31,8 @@ export type PiRunInput = {
   enabledTools: string[];
   autoApproveTools: string[];
   requireApproval: string[];
+  /** Hard cap on LLM turns to match the native `maxToolTurns`. */
+  maxToolTurns: number;
 };
 
 type PauseEntry = {
@@ -81,14 +83,35 @@ function safeClose(c: Controller) {
 /**
  * Subscribe to agent events and re-emit as Sahayak SSE events. Returns the
  * unsubscribe function. `onEnd` fires once when `agent_end` arrives.
+ *
+ * `turnState` is a ref shared across rebinds so the turn cap survives a
+ * pause/resume cycle — counting lives with the Agent instance, not the
+ * individual SSE stream.
  */
 function attachTranslator(
   agent: Agent,
   controller: Controller,
+  turnState: { turnCount: number; maxTurns: number; capped: boolean },
   onEnd: () => void,
 ): () => void {
   return agent.subscribe((event: AgentEvent) => {
     switch (event.type) {
+      case "turn_start": {
+        turnState.turnCount++;
+        if (!turnState.capped && turnState.turnCount > turnState.maxTurns) {
+          turnState.capped = true;
+          sse(controller, {
+            type: "error",
+            message: `maxToolTurns exceeded (${turnState.maxTurns})`,
+          });
+          // abort() unwinds the Agent; agent_end will fire and tear
+          // everything down through the onEnd path below.
+          try {
+            agent.abort();
+          } catch {}
+        }
+        return;
+      }
       case "message_update": {
         const ev = event.assistantMessageEvent;
         if (ev.type === "text_delta") {
@@ -101,6 +124,21 @@ function attachTranslator(
       case "message_end": {
         const msg = event.message as AssistantMessage;
         if (msg.role !== "assistant") return;
+        // pi-agent-core encodes runtime failures into the final message
+        // rather than rejecting the prompt/continue promise. Surface those
+        // to the client as an SSE error — the client shows them inline and
+        // won't try to persist the half-turn as a normal assistant reply.
+        if (msg.stopReason === "error" || msg.stopReason === "aborted") {
+          sse(controller, {
+            type: "error",
+            message:
+              msg.errorMessage ??
+              (msg.stopReason === "aborted"
+                ? "stream aborted"
+                : "stream error"),
+          });
+          return;
+        }
         let text = "";
         let thinking = "";
         const toolCalls: { name: string; arguments: Record<string, unknown> }[] = [];
@@ -199,6 +237,13 @@ export async function startPiRun(
     current: controller,
     unsub: null,
   };
+  // Shared across translator rebinds — counts LLM turns (not individual
+  // tool calls) to mirror the native path's maxToolTurns cap.
+  const turnState = {
+    turnCount: 0,
+    maxTurns: input.maxToolTurns,
+    capped: false,
+  };
 
   const agent = new Agent({
     initialState: {
@@ -269,7 +314,7 @@ export async function startPiRun(
   const rebind = (c: Controller) => {
     if (ctrl.unsub) ctrl.unsub();
     ctrl.current = c;
-    ctrl.unsub = attachTranslator(agent, c, () => {
+    ctrl.unsub = attachTranslator(agent, c, turnState, () => {
       // agent_end fired: drop our subscriber, close the live stream, clean
       // up the run-state entry. Pending map is already cleaned by the
       // beforeToolCall post-await step.
