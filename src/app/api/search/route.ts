@@ -13,7 +13,7 @@ const MAX_HITS = 40;
 const SNIPPET_RADIUS = 70;
 const MAX_MATCHES_PER_SESSION = 3;
 
-type SearchMatch = {
+type Match = {
   role: "user" | "assistant" | "tool" | "system";
   snippet: string;
   matchStart: number;
@@ -26,44 +26,41 @@ type SearchHit = {
   title: string;
   updatedAt: number;
   matchCount: number;
-  matches: SearchMatch[];
+  matches: Match[];
 };
 
+/** Returns a ~140-char window around `idx` with word-boundary trimming
+ *  and an ellipsis where we cut. `matchStart` is the offset of the
+ *  match inside the returned snippet, accounting for the leading
+ *  ellipsis. */
 function snippetAround(
   text: string,
-  matchIdx: number,
-  matchLen: number,
+  idx: number,
+  queryLen: number,
 ): { snippet: string; matchStart: number } {
-  const start = Math.max(0, matchIdx - SNIPPET_RADIUS);
-  const end = Math.min(text.length, matchIdx + matchLen + SNIPPET_RADIUS);
-  let slice = text.slice(start, end);
-  let prefixTrimmed = 0;
+  const rawStart = Math.max(0, idx - SNIPPET_RADIUS);
+  const rawEnd = Math.min(text.length, idx + queryLen + SNIPPET_RADIUS);
+  let start = rawStart;
+  let prefix = "";
   if (start > 0) {
-    // Nudge to next whitespace so we don't cut mid-word.
-    const ws = slice.search(/\s/);
-    if (ws > 0 && ws < SNIPPET_RADIUS) {
-      slice = slice.slice(ws + 1);
-      prefixTrimmed = ws + 1;
-    }
+    const lead = text.slice(rawStart, idx);
+    const ws = lead.search(/\s/);
+    if (ws >= 0 && ws < SNIPPET_RADIUS - 10) start = rawStart + ws + 1;
+    prefix = "…";
   }
+  let end = rawEnd;
+  let suffix = "";
   if (end < text.length) {
-    const lastWs = slice.lastIndexOf(" ");
-    if (lastWs > slice.length - SNIPPET_RADIUS) {
-      slice = slice.slice(0, lastWs);
-    }
+    const trail = text.slice(idx + queryLen, rawEnd);
+    const ws = trail.search(/\s(?=\S*$)/);
+    if (ws > 0) end = idx + queryLen + ws;
+    suffix = "…";
   }
-  // Collapse whitespace to single spaces for display; recompute the
-  // match offset post-trim.
-  const preEllipsis = start > 0 ? "…" : "";
-  const postEllipsis = end < text.length ? "…" : "";
-  const rawMatchOffsetInSlice = matchIdx - start - prefixTrimmed;
-  const cleaned = `${preEllipsis}${slice}${postEllipsis}`.replace(
-    /[\t\n\r]+/g,
-    " ",
-  );
+  const body = text.slice(start, end).replace(/\s+/g, " ").trim();
+  const matchStart = prefix.length + (idx - start);
   return {
-    snippet: cleaned,
-    matchStart: Math.max(0, rawMatchOffsetInSlice + preEllipsis.length),
+    snippet: `${prefix}${body}${suffix}`,
+    matchStart: Math.max(0, matchStart),
   };
 }
 
@@ -81,7 +78,6 @@ type MetaRecord = {
   assistantId: string;
   title: string;
   updatedAt: number;
-  pinned?: boolean;
 };
 
 async function scanFile(
@@ -107,31 +103,28 @@ async function scanFile(
   if (!meta) return null;
 
   const lower = needle.toLowerCase();
-  const needleLen = needle.length;
-  const matches: SearchMatch[] = [];
-  let totalMatches = 0;
+  const matches: Match[] = [];
+  let matchCount = 0;
 
-  // Title match counts as a match but doesn't consume a slot in the
-  // visible match list unless we have nothing else.
+  // Title — cheap virtual "system" role so UI can distinguish if useful.
   const titleLower = meta.title.toLowerCase();
-  let titleSnippet: SearchMatch | null = null;
   if (titleLower.includes(lower)) {
+    matchCount++;
     const idx = titleLower.indexOf(lower);
-    const s = snippetAround(meta.title, idx, needleLen);
-    titleSnippet = {
+    const { snippet, matchStart } = snippetAround(
+      meta.title,
+      idx,
+      needle.length,
+    );
+    matches.push({
       role: "system",
-      snippet: `title · ${s.snippet}`,
-      matchStart: s.matchStart + "title · ".length,
-      matchLen: needleLen,
-    };
-    totalMatches += 1;
+      snippet: `title · ${snippet}`,
+      matchStart: matchStart + "title · ".length,
+      matchLen: needle.length,
+    });
   }
 
-  for (
-    let i = 1;
-    i < lines.length && matches.length < MAX_MATCHES_PER_SESSION;
-    i++
-  ) {
+  for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     let parsed: { type: string; data?: SessionMessage };
@@ -142,47 +135,40 @@ async function scanFile(
     }
     if (parsed.type !== "message" || !parsed.data) continue;
     const m = parsed.data;
-    const role: SearchMatch["role"] =
-      m.role === "user" || m.role === "assistant" || m.role === "tool"
-        ? m.role
-        : "system";
     const haystacks: string[] = [];
     if (typeof m.content === "string" && m.content) haystacks.push(m.content);
-    if (typeof m.thinking === "string" && m.thinking) haystacks.push(m.thinking);
+    if (typeof m.thinking === "string" && m.thinking)
+      haystacks.push(m.thinking);
     if (m.toolArgs && typeof m.toolArgs === "object") {
-      try {
-        haystacks.push(JSON.stringify(m.toolArgs));
-      } catch {}
+      haystacks.push(JSON.stringify(m.toolArgs));
     }
-    for (const h of haystacks) {
-      const hay = h.toLowerCase();
+    for (const text of haystacks) {
+      const hay = text.toLowerCase();
       const idx = hay.indexOf(lower);
       if (idx < 0) continue;
-      totalMatches += 1;
-      if (matches.length >= MAX_MATCHES_PER_SESSION) break;
-      const s = snippetAround(h, idx, needleLen);
-      matches.push({
-        role,
-        snippet: s.snippet,
-        matchStart: s.matchStart,
-        matchLen: needleLen,
-      });
+      matchCount++;
+      if (matches.length < MAX_MATCHES_PER_SESSION) {
+        const { snippet, matchStart } = snippetAround(text, idx, needle.length);
+        matches.push({
+          role:
+            m.role === "user" || m.role === "assistant" || m.role === "tool"
+              ? m.role
+              : "system",
+          snippet,
+          matchStart,
+          matchLen: needle.length,
+        });
+      }
     }
   }
 
-  if (matches.length === 0 && titleSnippet) {
-    matches.push(titleSnippet);
-  } else if (titleSnippet && matches.length < MAX_MATCHES_PER_SESSION) {
-    matches.unshift(titleSnippet);
-  }
-
-  if (!matches.length) return null;
+  if (matchCount === 0) return null;
   return {
     sessionId: meta.id,
     assistantId,
     title: meta.title,
     updatedAt: meta.updatedAt,
-    matchCount: totalMatches,
+    matchCount,
     matches,
   };
 }
@@ -192,7 +178,7 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get("q") ?? "").trim();
   const scope = url.searchParams.get("scope") ?? "current";
   const assistantId = url.searchParams.get("assistant") ?? "";
-  if (q.length < 2) return NextResponse.json({ hits: [] });
+  if (!q || q.length < 2) return NextResponse.json({ hits: [] });
 
   const assistantDirs: string[] = [];
   if (scope === "all" || !assistantId) {
@@ -217,12 +203,10 @@ export async function GET(req: Request) {
     for (const f of files) {
       const hit = await scanFile(path.join(dir, f), aid, q);
       if (hit) hits.push(hit);
-      if (hits.length >= MAX_HITS * 2) break outer;
+      if (hits.length >= MAX_HITS) break outer;
     }
   }
 
-  const sorted = hits
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .slice(0, MAX_HITS);
-  return NextResponse.json({ hits: sorted });
+  hits.sort((a, b) => b.updatedAt - a.updatedAt);
+  return NextResponse.json({ hits: hits.slice(0, MAX_HITS) });
 }

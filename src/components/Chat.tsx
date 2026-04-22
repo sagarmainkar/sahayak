@@ -1248,7 +1248,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             {searchHits !== null ? (
               searchHits.length === 0 ? (
                 <div className="px-2 py-4 text-center font-serif text-[12px] italic text-fg-subtle">
-                  {searchLoading ? "searchLoading…" : "no matches"}
+                  {searchLoading ? "searching…" : "no matches"}
                 </div>
               ) : (
                 searchHits.map((h) => {
