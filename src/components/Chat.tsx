@@ -516,8 +516,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               toolCalls: obj.toolCalls as ChatMessage["toolCalls"],
             });
           } else if (t === "tool_call") {
+            // Use the server's toolCallId as the React id so tool_result
+            // can find THIS card — parallel execution fires multiple
+            // tool_call events back-to-back, and a position-based match
+            // overwrites the same card while the others spin forever.
+            const callId = String(obj.id ?? uid());
             assembled.push({
-              id: uid(),
+              id: callId,
               role: "tool",
               content: "(running…)",
               toolName: String(obj.name ?? ""),
@@ -525,8 +530,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             });
             setMessages([...assembled]);
           } else if (t === "tool_result") {
+            const callId = obj.id ? String(obj.id) : null;
             for (let i = assembled.length - 1; i >= 0; i--) {
-              if (assembled[i].role === "tool") {
+              const m = assembled[i];
+              const match = callId
+                ? m.role === "tool" && m.id === callId
+                : m.role === "tool";
+              if (match) {
                 assembled[i] = {
                   ...assembled[i],
                   content: String(obj.summary ?? ""),
@@ -535,7 +545,22 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               }
             }
             setMessages([...assembled]);
-            startNewAssistant();
+            // A tool_result marks a transition point; the next LLM turn
+            // may produce content. But with parallel execution we see
+            // several tool_results in a row — only the first one needs
+            // to open a fresh assistant placeholder. Reuse an existing
+            // trailing empty one on subsequent results.
+            const tail = assembled[assembled.length - 1];
+            const tailIsEmptyAssistant =
+              tail?.role === "assistant" &&
+              !tail.content &&
+              !tail.thinking &&
+              (!tail.toolCalls || tail.toolCalls.length === 0);
+            if (tailIsEmptyAssistant) {
+              curIndex = assembled.length - 1;
+            } else {
+              startNewAssistant();
+            }
           } else if (t === "tool_approval_required") {
             pause = {
               token: String(obj.token ?? ""),

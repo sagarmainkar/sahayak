@@ -287,8 +287,13 @@ export async function runToolLoop(
           return;
         }
 
+        // Per-call id so the client can pair this tool_call with its
+        // tool_result. Sequential on this backend, but we emit the id for
+        // wire-protocol parity with the pi backend (which is parallel).
+        const callId = nanoid(12);
         sse(controller, {
           type: "tool_call",
+          id: callId,
           name: tc.name,
           arguments: tc.arguments,
         });
@@ -334,6 +339,7 @@ export async function runToolLoop(
         });
         sse(controller, {
           type: "tool_result",
+          id: callId,
           name: tc.name,
           ok: (result as { ok?: boolean })?.ok ?? false,
           summary: fullJson,

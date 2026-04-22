@@ -165,6 +165,10 @@ function attachTranslator(
       case "tool_execution_start": {
         sse(controller, {
           type: "tool_call",
+          // Forward pi-agent-core's toolCallId so the client can match the
+          // terminating tool_result to THIS card — required for parallel
+          // execution where multiple calls are in flight at once.
+          id: event.toolCallId,
           name: event.toolName,
           arguments: event.args ?? {},
         });
@@ -181,6 +185,7 @@ function attachTranslator(
           details?.full ?? JSON.stringify(event.result ?? null);
         sse(controller, {
           type: "tool_result",
+          id: event.toolCallId,
           name: event.toolName,
           ok: !event.isError,
           summary,
