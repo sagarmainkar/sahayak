@@ -6,6 +6,7 @@ import {
   toOllamaMessages,
   type ClientMsg,
 } from "@/lib/toolLoop";
+import { startPiRun } from "@/lib/toolLoopPi";
 import { buildAlwaysInjectedBlock } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
@@ -50,10 +51,30 @@ export async function POST(req: Request) {
     ? `${memBlock}\n\n---\n\n${body.system ?? ""}`.trim()
     : body.system;
 
-  const messages = await toOllamaMessages(clientMsgs, systemWithMemory);
+  const usePi = process.env.SAHAYAK_LLM_BACKEND === "pi";
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      if (usePi) {
+        // pi-mono path: convert ClientMsg → pi-ai Message inside the loop.
+        // The run is fire-and-forget; the loop closes the controller on
+        // agent_end or on a pause (tool_approval_required).
+        await startPiRun(
+          {
+            systemPrompt: systemWithMemory ?? "",
+            clientMessages: clientMsgs,
+            model: body.model,
+            think: body.think ?? "medium",
+            enabledTools: enabled,
+            autoApproveTools: body.autoApproveTools ?? [],
+            requireApproval: body.requireApproval ?? DEFAULT_REQUIRE_APPROVAL,
+          },
+          controller,
+        );
+        return;
+      }
+
+      const messages = await toOllamaMessages(clientMsgs, systemWithMemory);
       await runToolLoop(
         {
           createdAt: Date.now(),
