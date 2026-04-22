@@ -76,5 +76,13 @@ export function TemplateBlock({
   }
 
   const Render = spec.Render as React.ComponentType<{ data: unknown }>;
-  return <Render data={data} />;
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1 font-mono text-[9.5px] uppercase tracking-[0.14em] text-fg-subtle">
+        <span>↪</span>
+        <span>rendered via {spec.name.toLowerCase()} template</span>
+      </div>
+      <Render data={data} />
+    </div>
+  );
 }

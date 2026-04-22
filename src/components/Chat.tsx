@@ -412,17 +412,33 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     let curIndex = -1;
     // High-volume backends (pi-ai over Ollama /v1) emit character-level
     // deltas — a single streamed artifact can fire thousands of patchCur
-    // calls. Without batching, React hits "Maximum update depth exceeded".
-    // Mutate `assembled` synchronously so subsequent delta reads see current
-    // state; coalesce the setMessages notification to one per animation
-    // frame (~60 Hz).
-    let pendingFlush: number | null = null;
+    // calls, plus parallel timeline updates, plus explicit setMessages
+    // calls from tool_call / tool_result handlers. All of them must go
+    // through ONE throttle or React hits "Maximum update depth exceeded"
+    // during heavy streams (big template JSON, parallel tools, etc).
+    //
+    // Leading+trailing throttle at ~25fps: fire immediately the first
+    // time, then at most once per 40ms window. `flush()` is the single
+    // source of truth — no setMessages elsewhere.
+    let lastFlush = 0;
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+    const FLUSH_WINDOW_MS = 40;
+    const flushNow = () => {
+      if (pendingTimer !== null) {
+        clearTimeout(pendingTimer);
+        pendingTimer = null;
+      }
+      lastFlush = Date.now();
+      setMessages([...assembled]);
+    };
     const scheduleFlush = () => {
-      if (pendingFlush !== null) return;
-      pendingFlush = requestAnimationFrame(() => {
-        pendingFlush = null;
-        setMessages([...assembled]);
-      });
+      if (pendingTimer !== null) return;
+      const sinceLast = Date.now() - lastFlush;
+      if (sinceLast >= FLUSH_WINDOW_MS) {
+        flushNow();
+        return;
+      }
+      pendingTimer = setTimeout(flushNow, FLUSH_WINDOW_MS - sinceLast);
     };
     const patchCur = (patch: Partial<ChatMessage>) => {
       if (curIndex < 0) return;
@@ -514,30 +530,44 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       };
       assembled.push(a);
       curIndex = assembled.length - 1;
-      setMessages([...assembled]);
+      scheduleFlush();
     };
     startNewAssistant();
 
     // Per-turn template augmentation: append the chosen template's
-    // system prompt to the assistant's base prompt. Server doesn't need
-    // to know — it just sees a longer `system`. Client-side Markdown
-    // detects `template:<id>` fences and renders via TemplateBlock.
+    // system prompt to the assistant's base prompt AND inline an
+    // instruction on the last user message. The inline instruction is
+    // the important part — without it, a template's system prompt gets
+    // shadowed by any previous turn's assistant output in the same
+    // session (models follow precedent). Storing the instruction only
+    // on the wire keeps the persisted transcript clean.
     const tmpl = templateId ? TEMPLATES_BY_ID[templateId] : null;
     const systemWithTemplate = tmpl
       ? `${assistant.systemPrompt}\n\n---\n\n${tmpl.systemPrompt}`
       : assistant.systemPrompt;
 
-    const initialPayload = {
-      model: activeModel,
-      system: systemWithTemplate,
-      messages: nextMessages.map((m) => ({
+    const wireMessages = nextMessages.map((m, i) => {
+      const base = {
         role: m.role,
         content: m.content,
         thinking: m.thinking,
         toolCalls: m.toolCalls,
         toolName: m.toolName,
         attachments: m.attachments,
-      })),
+      };
+      if (tmpl && i === nextMessages.length - 1 && m.role === "user") {
+        return {
+          ...base,
+          content: `${m.content}\n\n[Respond using the ${tmpl.name} template: emit a \`\`\`template:${tmpl.id}\`\`\` fenced block with matching JSON. A 1–2 sentence lead above the fence is fine; no long intro.]`,
+        };
+      }
+      return base;
+    });
+
+    const initialPayload = {
+      model: activeModel,
+      system: systemWithTemplate,
+      messages: wireMessages,
       think: assistant.thinkMode === "off" ? false : assistant.thinkMode,
       enabledTools,
       artifactsEnabled,
@@ -636,7 +666,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   : undefined,
               createdAt: Date.now(),
             });
-            setMessages([...assembled]);
+            scheduleFlush();
           } else if (t === "tool_result") {
             const callId = obj.id ? String(obj.id) : null;
             const ok = Boolean(obj.ok);
@@ -654,7 +684,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 break;
               }
             }
-            setMessages([...assembled]);
+            scheduleFlush();
             // A tool_result marks a transition point; the next LLM turn
             // may produce content. But with parallel execution we see
             // several tool_results in a row — only the first one needs
@@ -772,7 +802,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       ) {
         closeTimelineAt(curIndex);
       }
-      setMessages([...assembled]);
+      flushNow();
       await persist(sid, assembled, lastTokens);
 
       if (autoSpeakRef.current && !cancelled) {

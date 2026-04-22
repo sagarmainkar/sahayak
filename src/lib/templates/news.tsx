@@ -50,7 +50,7 @@ How to compose each item — read carefully:
 
 - title: an EDITORIAL headline you write yourself, not a verbatim copy of the article's original title. Make it scannable and specific.
 - summary: 2–4 sentences of YOUR OWN synthesis. Answer "what happened" AND "why it matters" or "what's next". Sprinkle 1–2 well-chosen emojis where they add clarity (🚀 launch · 📈 growth · ⚠ risk · 🏆 win · 💰 funding · 🔥 momentum). DO NOT copy the source's lede paragraph. This card is your composed brief, not a redirect.
-- thumbnails: 0–3 image URLs, pulled from og:image / article hero images in web_fetch'd pages. First one is rendered largest. Omit entirely if you don't have real image URLs — never fabricate.
+- thumbnails: 0–3 image URLs. To get them, call web_fetch on each article and look in the returned HTML for <meta property="og:image" ...>, <meta name="twitter:image" ...>, or the first content <img>. Copy those URLs verbatim into the array. If web_fetch fails or the page has no image meta, leave thumbnails empty — NEVER fabricate a URL. The render has a sensible visual fallback for items without images, so "no thumbnail" is an acceptable outcome.
 - url + source: the primary citation. Rendered as a small chip in the card footer, not as the main action. The CARD is the content; the source is just attribution.
 - publishedAt: ISO 8601 date when known; omit otherwise. Never guess.
 - tags: 2–5 short tags (single word where possible). Used for visual categorisation.
@@ -202,16 +202,52 @@ function ThumbStack({ urls }: { urls: string[] }) {
   /* eslint-enable @next/next/no-img-element */
 }
 
+/** Deterministic hue from a string so the fallback block has a stable,
+ *  source-coloured tint across renders. */
+function hueFrom(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 360;
+}
+
+function ThumbFallback({ source, host }: { source?: string; host?: string }) {
+  const label = source || host || "";
+  const initial = (label[0] ?? "").toUpperCase();
+  const hue = hueFrom(label || "news");
+  return (
+    <div
+      className="flex h-full w-full flex-col items-center justify-center gap-1 font-display italic"
+      style={{
+        background: `linear-gradient(135deg, hsl(${hue} 35% 82% / 0.9), hsl(${(hue + 32) % 360} 30% 72% / 0.9))`,
+      }}
+    >
+      <span
+        className="text-[40px] leading-none text-white/85 drop-shadow-sm"
+        style={{ fontVariationSettings: '"opsz" 144, "SOFT" 50' }}
+      >
+        {initial || "·"}
+      </span>
+      {label && (
+        <span className="px-2 text-center font-mono text-[9px] uppercase tracking-wider text-white/80">
+          {label.length > 18 ? label.slice(0, 18) + "…" : label}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function NewsCard({ item }: { item: NewsItem }) {
   const host = hostname(item.url);
   const hasThumbs = !!item.thumbnails && item.thumbnails.length > 0;
   return (
     <article className="flex w-[min(560px,85vw)] flex-shrink-0 snap-start overflow-hidden rounded-sm border border-border bg-bg-paper transition-colors hover:border-border-strong">
-      {hasThumbs && (
-        <div className="h-[148px] w-[148px] flex-shrink-0 overflow-hidden bg-bg-muted">
+      <div className="h-[148px] w-[148px] flex-shrink-0 overflow-hidden bg-bg-muted">
+        {hasThumbs ? (
           <ThumbStack urls={item.thumbnails!} />
-        </div>
-      )}
+        ) : (
+          <ThumbFallback source={item.source} host={host} />
+        )}
+      </div>
       <div className="flex min-w-0 flex-1 flex-col px-3.5 py-3">
         <h3
           className="font-display text-[15px] italic leading-tight text-fg"
