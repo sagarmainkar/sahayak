@@ -410,10 +410,21 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       curIndex = assembled.length - 1;
       setMessages([...assembled]);
     };
+    // High-volume backends (pi-ai over Ollama /v1) emit character-level
+    // deltas — a single streamed artifact can fire thousands of patchCur
+    // calls. Without batching, React hits "Maximum update depth exceeded".
+    // Mutate `assembled` synchronously so subsequent delta reads see current
+    // state; coalesce the setMessages notification to one per animation
+    // frame (~60 Hz).
+    let pendingFlush: number | null = null;
     const patchCur = (patch: Partial<ChatMessage>) => {
       if (curIndex < 0) return;
       assembled[curIndex] = { ...assembled[curIndex], ...patch };
-      setMessages([...assembled]);
+      if (pendingFlush !== null) return;
+      pendingFlush = requestAnimationFrame(() => {
+        pendingFlush = null;
+        setMessages([...assembled]);
+      });
     };
     startNewAssistant();
 

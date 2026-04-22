@@ -318,11 +318,49 @@ export function SettingsPage() {
 
         <p className="mb-3 font-serif text-[12.5px] italic text-fg-muted">
           Sessions and artifacts not updated in the last{" "}
-          {cleanup?.ttlDays ?? 15} days are cleaned up automatically (runs
-          in the background ~once a day). Pin (
+          <span className="font-mono not-italic text-fg">
+            {settings?.cleanup.ttlDays ?? cleanup?.ttlDays ?? 15}
+          </span>{" "}
+          days are cleaned up automatically (runs in the background ~once a
+          day). Pin (
           <Pin className="inline h-3 w-3 fill-accent text-accent" />) any
           item you want to keep forever.
         </p>
+
+        <div className="mb-3 flex items-center gap-2 text-[11.5px] text-fg-muted">
+          <label htmlFor="cleanup-ttl">TTL (days)</label>
+          <input
+            id="cleanup-ttl"
+            type="number"
+            min={1}
+            max={365}
+            step={1}
+            disabled={!settings}
+            value={settings?.cleanup.ttlDays ?? 15}
+            onChange={(e) => {
+              const v = Math.floor(Number(e.target.value));
+              if (!Number.isFinite(v)) return;
+              const clamped = Math.max(1, Math.min(365, v));
+              // Optimistic local update so the number reflects immediately
+              // — patchSettings will replace with the server-clamped value.
+              setSettings((prev) =>
+                prev ? { ...prev, cleanup: { ttlDays: clamped } } : prev,
+              );
+            }}
+            onBlur={(e) => {
+              const v = Math.floor(Number(e.target.value));
+              if (!Number.isFinite(v)) return;
+              const clamped = Math.max(1, Math.min(365, v));
+              patchSettings({ cleanup: { ttlDays: clamped } }).then(() =>
+                loadCleanup(),
+              );
+            }}
+            className="w-20 rounded border border-border bg-bg-paper px-2 py-0.5 font-mono text-fg focus:border-accent focus:outline-none"
+          />
+          <span className="text-fg-subtle">
+            (1–365; applies to the next preview/sweep)
+          </span>
+        </div>
 
         {cleanup && (
           <div className="mb-3 flex flex-wrap items-center gap-3 text-[11.5px] text-fg-muted">

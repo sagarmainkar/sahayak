@@ -1,14 +1,22 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { readSettings, CLEANUP_TTL_BOUNDS } from "@/lib/settings";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 const ARTIFACTS_DIR = path.join(DATA_DIR, "artifacts");
 const MARKER = path.join(DATA_DIR, ".last_cleanup");
 
-const TTL_DAYS = 15;
-const TTL_MS = TTL_DAYS * 24 * 60 * 60 * 1000;
+// Resolved per-sweep from settings so the UI can change it live.
+async function currentTtlDays(): Promise<number> {
+  try {
+    const s = await readSettings();
+    return s.cleanup.ttlDays;
+  } catch {
+    return CLEANUP_TTL_BOUNDS.default;
+  }
+}
 // How stale the marker can be before we re-sweep on the next listing.
 const SWEEP_EVERY_MS = 24 * 60 * 60 * 1000;
 
@@ -77,7 +85,9 @@ async function dirSize(p: string): Promise<number> {
   }
 }
 
-async function listSessionCandidates(): Promise<SweepCandidate[]> {
+async function listSessionCandidates(
+  ttlMs: number,
+): Promise<SweepCandidate[]> {
   const out: SweepCandidate[] = [];
   if (!existsSync(SESSIONS_DIR)) return out;
   for (const aid of await fs.readdir(SESSIONS_DIR)) {
@@ -98,7 +108,7 @@ async function listSessionCandidates(): Promise<SweepCandidate[]> {
       const pinned = !!meta.pinned;
       const age = Date.now() - updatedAt;
       if (pinned) continue;
-      if (age < TTL_MS) continue;
+      if (age < ttlMs) continue;
       out.push({
         kind: "session",
         id: String(meta.id ?? f.replace(/\.jsonl$/, "")),
@@ -151,7 +161,9 @@ async function listCascadeArtifacts(
   return out;
 }
 
-async function listArtifactCandidates(): Promise<SweepCandidate[]> {
+async function listArtifactCandidates(
+  ttlMs: number,
+): Promise<SweepCandidate[]> {
   const out: SweepCandidate[] = [];
   if (!existsSync(ARTIFACTS_DIR)) return out;
   const entries = await fs.readdir(ARTIFACTS_DIR, { withFileTypes: true });
@@ -166,7 +178,7 @@ async function listArtifactCandidates(): Promise<SweepCandidate[]> {
       const pinned = !!meta.pinned;
       const age = Date.now() - updatedAt;
       if (pinned) continue;
-      if (age < TTL_MS) continue;
+      if (age < ttlMs) continue;
       out.push({
         kind: "artifact",
         id,
@@ -222,9 +234,11 @@ async function countPinnedArtifacts(): Promise<number> {
 }
 
 export async function previewSweep(): Promise<SweepReport> {
+  const ttlDays = await currentTtlDays();
+  const ttlMs = ttlDays * 24 * 60 * 60 * 1000;
   const [sess, arts, pinS, pinA] = await Promise.all([
-    listSessionCandidates(),
-    listArtifactCandidates(),
+    listSessionCandidates(ttlMs),
+    listArtifactCandidates(ttlMs),
     countPinnedSessions(),
     countPinnedArtifacts(),
   ]);
@@ -243,7 +257,7 @@ export async function previewSweep(): Promise<SweepReport> {
       return b.ageDays - a.ageDays;
     }),
     pinnedSkipped: pinS + pinA,
-    ttlDays: TTL_DAYS,
+    ttlDays,
   };
 }
 
@@ -284,7 +298,7 @@ export async function runSweep(): Promise<{
     deletedArtifacts,
     freedBytes,
     pinnedSkipped: report.pinnedSkipped,
-    ttlDays: TTL_DAYS,
+    ttlDays: report.ttlDays,
   };
 }
 
@@ -329,6 +343,8 @@ export async function maybeSweep(): Promise<void> {
   });
 }
 
-export const TTL = {
-  days: TTL_DAYS,
-};
+/** Current TTL resolved from settings (async). UI can also read it from
+ *  `previewSweep().ttlDays`. */
+export async function currentTtl(): Promise<number> {
+  return currentTtlDays();
+}

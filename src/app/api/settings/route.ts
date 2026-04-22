@@ -26,11 +26,19 @@ export async function PATCH(req: Request) {
       ? body.tts.pollyVoice
       : undefined;
 
+  const ttlDays: number | undefined =
+    typeof body?.cleanup?.ttlDays === "number"
+      ? body.cleanup.ttlDays
+      : undefined;
+
   const patch: SettingsPatch = {};
   if (backend !== undefined || voice !== undefined) {
     patch.tts = {};
     if (backend !== undefined) patch.tts.backend = backend;
     if (voice !== undefined) patch.tts.pollyVoice = voice;
+  }
+  if (ttlDays !== undefined) {
+    patch.cleanup = { ttlDays };
   }
   const settings = await writeSettings(patch);
   return NextResponse.json({ settings });
