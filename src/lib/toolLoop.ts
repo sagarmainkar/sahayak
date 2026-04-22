@@ -1,16 +1,17 @@
 import { nanoid } from "nanoid";
 import { OLLAMA_URL } from "@/lib/ollama";
-import { TOOLS_BY_NAME, toolsForOllama } from "@/lib/tools";
+import { ALL_TOOLS, TOOLS_BY_NAME, toolsForOllama } from "@/lib/tools";
 import { readUpload, readUploadText } from "@/lib/uploads";
 import { REACT_ARTIFACT_INSTRUCTIONS } from "@/lib/store";
 import { setPaused, type PausedLoop } from "@/lib/approvalStore";
 import type { MsgAttachment } from "@/lib/types";
 
-export const DEFAULT_REQUIRE_APPROVAL = [
-  "execute_command",
-  "write_file",
-  "artifact_write_file",
-];
+// Gate every tool by default for consistency — users can "approve for
+// session" to skip the gate on subsequent calls in the same session.
+// Previously only the destructive trio (execute_command, write_file,
+// artifact_write_file) was gated; the rest were implicit-allow, which
+// made the UX inconsistent across tools.
+export const DEFAULT_REQUIRE_APPROVAL = ALL_TOOLS.map((t) => t.name);
 const ARTIFACT_TOOLS = new Set(["artifact_create", "artifact_write_file"]);
 
 type ToolCall = { name: string; arguments: Record<string, unknown> };
