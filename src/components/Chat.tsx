@@ -56,7 +56,11 @@ const Turn = memo(function Turn({
   if (m.role === "tool") {
     return (
       <div className="mx-auto w-full max-w-[74ch] pl-4">
-        <ToolCard name={m.toolName ?? "tool"} content={m.content} />
+        <ToolCard
+          name={m.toolName ?? "tool"}
+          args={m.toolArgs}
+          content={m.content}
+        />
       </div>
     );
   }
@@ -526,6 +530,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               role: "tool",
               content: "(running…)",
               toolName: String(obj.name ?? ""),
+              toolArgs:
+                obj.arguments &&
+                typeof obj.arguments === "object"
+                  ? (obj.arguments as Record<string, unknown>)
+                  : undefined,
               createdAt: Date.now(),
             });
             setMessages([...assembled]);

@@ -52,6 +52,10 @@ export type ChatMessage = {
   thinking?: string;
   toolCalls?: { name: string; arguments: Record<string, unknown> }[];
   toolName?: string;
+  /** Arguments the tool was invoked with. Shown on the ToolCard so the
+   *  user can see the URL fetched, query searched, command executed, etc.
+   *  Only set on role:"tool" messages. */
+  toolArgs?: Record<string, unknown>;
   attachments?: MsgAttachment[];
   createdAt: number;
 };
