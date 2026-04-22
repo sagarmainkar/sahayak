@@ -249,6 +249,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const [sessionApprovedTools, setSessionApprovedTools] = useState<Set<string>>(
     new Set(),
   );
+  // External attachment handoff — set by e.g. the artifact screenshot
+  // button. Composer consumes it on mount-ish (via effect) and clears it
+  // back to null. Not lifting attachments state fully; this is a
+  // one-shot signal.
+  const [pendingComposerAttachment, setPendingComposerAttachment] =
+    useState<MsgAttachment | null>(null);
   const approvalDeciderRef = useRef<
     | ((d: {
         decision: "approve" | "deny" | "cancel";
@@ -1388,6 +1394,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 lastArtifactsEnabledRef.current = true;
                 handleSend(prompt, [], true);
               }}
+              onAttachScreenshot={(a) => setPendingComposerAttachment(a)}
             />
           ) : showTools && (
             <aside className="w-72 overflow-y-auto border-l border-border bg-bg-elev p-3">
@@ -1468,6 +1475,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               return next;
             });
           }}
+          pendingAttachment={pendingComposerAttachment}
+          onPendingAttachmentConsumed={() =>
+            setPendingComposerAttachment(null)
+          }
         />
       </div>
     </div>

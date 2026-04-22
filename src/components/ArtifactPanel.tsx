@@ -3,18 +3,25 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, RefreshCw, Code2, Download, Copy, Maximize2, Minimize2, Check,
-  Wand2, Pin,
+  Wand2, Pin, Camera, Loader2,
 } from "lucide-react";
 import { useArtifactPanel } from "./ArtifactPanelContext";
-import type { Artifact } from "@/lib/types";
+import type { Artifact, MsgAttachment } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 type Props = {
   /** Called when the user clicks "Ask to fix" on a runtime error. */
   onFixRequest?: (prompt: string) => void;
+  /** Called when the user snaps a screenshot of the artifact. The
+   *  attachment is already uploaded server-side; the parent just needs
+   *  to stage it on the composer. */
+  onAttachScreenshot?: (a: MsgAttachment) => void;
 };
 
-export function ArtifactPanel({ onFixRequest }: Props = {}) {
+export function ArtifactPanel({
+  onFixRequest,
+  onAttachScreenshot,
+}: Props = {}) {
   const { openId, refreshKey: externalRefreshKey, close } = useArtifactPanel();
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [showSource, setShowSource] = useState(false);
@@ -23,8 +30,68 @@ export function ArtifactPanel({ onFixRequest }: Props = {}) {
   const [iframeReady, setIframeReady] = useState(false);
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
   const refreshKey = externalRefreshKey + localRefreshKey;
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  /** Capture the iframe's rendered document to a PNG and hand the
+   *  resulting attachment back to the composer. Uses html-to-image on
+   *  the iframe's contentDocument.body since the iframe is same-origin
+   *  (/artifact-runtime.html). */
+  async function snapScreenshot() {
+    if (!onAttachScreenshot || capturing) return;
+    const iframe = iframeRef.current;
+    const doc = iframe?.contentDocument;
+    const target = doc?.body;
+    if (!iframe || !doc || !target) return;
+    setCapturing(true);
+    try {
+      const { toPng } = await import("html-to-image");
+      const width = target.scrollWidth || iframe.clientWidth;
+      const height = target.scrollHeight || iframe.clientHeight;
+      const dataUrl = await toPng(target, {
+        width,
+        height,
+        pixelRatio: Math.min(window.devicePixelRatio ?? 1, 2),
+        cacheBust: true,
+        backgroundColor: getComputedStyle(target).backgroundColor || "#ffffff",
+      });
+      const blob = await (await fetch(dataUrl)).blob();
+      const baseName = (artifact?.title ?? "artifact")
+        .replace(/[^a-z0-9]+/gi, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase()
+        .slice(0, 40) || "artifact";
+      const file = new File(
+        [blob],
+        `${baseName}-${Date.now()}.png`,
+        { type: "image/png" },
+      );
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/uploads", { method: "POST", body: fd });
+      if (!r.ok) throw new Error(`upload ${r.status}`);
+      const j = (await r.json()) as {
+        attachment: {
+          mimeType: string;
+          url: string;
+          kind: "image" | "document";
+        };
+      };
+      const filename = j.attachment.url.split("/").pop() ?? "";
+      if (j.attachment.kind !== "image") throw new Error("non-image upload");
+      onAttachScreenshot({
+        type: "image",
+        mimeType: j.attachment.mimeType,
+        filename,
+        originalName: file.name,
+      });
+    } catch (e) {
+      console.error("[artifact screenshot]", e);
+    } finally {
+      setCapturing(false);
+    }
+  }
 
   const isHtmlDoc =
     !!artifact && /^\s*(<!doctype\s+html|<html[\s>])/i.test(artifact.source);
@@ -236,6 +303,24 @@ export function ArtifactPanel({ onFixRequest }: Props = {}) {
             )}
           />
         </button>
+        {onAttachScreenshot && iframeReady && !runtimeError && (
+          <button
+            onClick={snapScreenshot}
+            disabled={capturing}
+            className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg disabled:opacity-50"
+            data-tip={
+              capturing
+                ? "Capturing…"
+                : "Snap current view → attach to composer"
+            }
+          >
+            {capturing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Camera className="h-3.5 w-3.5" />
+            )}
+          </button>
+        )}
         <button
           onClick={reload}
           className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"

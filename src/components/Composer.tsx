@@ -106,6 +106,12 @@ type Props = {
   onAbort: () => void;
   autoSpeak: boolean;
   onAutoSpeakToggle: () => void;
+  /** Externally-staged attachment (e.g. from the artifact screenshot
+   *  button). When non-null, Composer appends it to its attachment list
+   *  and calls `onPendingAttachmentConsumed` so the parent can clear
+   *  the slot. Composer never holds a reference to the parent's state. */
+  pendingAttachment?: MsgAttachment | null;
+  onPendingAttachmentConsumed?: () => void;
 };
 
 type UploadResponse = {
@@ -201,6 +207,8 @@ export function Composer({
   onAbort,
   autoSpeak,
   onAutoSpeakToggle,
+  pendingAttachment,
+  onPendingAttachmentConsumed,
 }: Props) {
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<MsgAttachment[]>([]);
@@ -230,6 +238,24 @@ export function Composer({
   const [transcribing, setTranscribing] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Consume externally-staged attachments (e.g. artifact screenshots).
+  // This is a one-shot signal from parent → child; setState-in-effect
+  // is deliberate here because the value ORIGINATES outside our state
+  // and must be absorbed into it once per change. Dedup by filename so
+  // strict-mode double-invokes don't attach twice.
+  useEffect(() => {
+    if (!pendingAttachment) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAttachments((prev) => {
+      const key = pendingAttachment.filename ?? "";
+      if (key && prev.some((a) => a.filename === key)) return prev;
+      return [...prev, pendingAttachment];
+    });
+    onPendingAttachmentConsumed?.();
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [pendingAttachment, onPendingAttachmentConsumed]);
   // Encrypted PDFs queue up here; we show a password prompt for the
   // head-of-queue entry until the user unlocks or skips.
   const [pendingEncrypted, setPendingEncrypted] = useState<
@@ -718,6 +744,7 @@ export function Composer({
             )}
           </button>
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
