@@ -176,6 +176,7 @@ const Turn = memo(function Turn({
               text={m.content}
               sessionId={sessionId}
               assistantId={assistant.id}
+              streaming={streaming}
             />
             {onSpeak && !streaming && (
               <button

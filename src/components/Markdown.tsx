@@ -136,10 +136,14 @@ export function Markdown({
   text,
   sessionId,
   assistantId,
+  streaming = false,
 }: {
   text: string;
   sessionId?: string | null;
   assistantId?: string | null;
+  /** True while the parent turn is still streaming. Used to suppress
+   *  parse-error UI in template fences whose JSON isn't closed yet. */
+  streaming?: boolean;
 }) {
   const processed = fenceAsciiBoxes(text);
   return (
@@ -170,7 +174,13 @@ export function Markdown({
             }
             if (lang.startsWith("template:")) {
               const tid = lang.slice("template:".length);
-              return <TemplateBlock templateId={tid} source={src} />;
+              return (
+                <TemplateBlock
+                  templateId={tid}
+                  source={src}
+                  streaming={streaming}
+                />
+              );
             }
             // Full HTML documents route to the artifact iframe (srcdoc path).
             // Bare/partial HTML snippets fall through to normal code rendering

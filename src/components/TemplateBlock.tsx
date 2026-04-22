@@ -1,14 +1,21 @@
 "use client";
 
 import { useMemo } from "react";
+import { Loader2 } from "lucide-react";
 import { TEMPLATES_BY_ID } from "@/lib/templates";
 
 export function TemplateBlock({
   templateId,
   source,
+  streaming = false,
 }: {
   templateId: string;
   source: string;
+  /** True while the parent turn is still streaming. While true, an
+   *  unparseable source is shown as a "composing…" indicator (the JSON
+   *  arrives a token at a time). Once streaming ends, unparseable
+   *  content is surfaced as an error. */
+  streaming?: boolean;
 }) {
   const spec = TEMPLATES_BY_ID[templateId];
   const parsed = useMemo(() => {
@@ -27,7 +34,16 @@ export function TemplateBlock({
     );
   }
 
+  // Don't parse-fail loudly while the model is still writing the block.
   if (parsed === null) {
+    if (streaming) {
+      return (
+        <div className="my-2 inline-flex items-center gap-2 rounded-sm border border-border bg-bg-paper/60 px-2.5 py-1.5 font-sans text-[11.5px] text-fg-subtle">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          composing {spec.name.toLowerCase()}…
+        </div>
+      );
+    }
     return (
       <div className="my-2 rounded-sm border border-red-500/40 bg-red-500/5 px-3 py-2 font-mono text-[11px]">
         <div className="mb-1 text-red-600 dark:text-red-400">
@@ -40,6 +56,15 @@ export function TemplateBlock({
 
   const data = spec.parse(parsed);
   if (data === null) {
+    if (streaming) {
+      // Valid JSON but shape not yet complete — still mid-stream.
+      return (
+        <div className="my-2 inline-flex items-center gap-2 rounded-sm border border-border bg-bg-paper/60 px-2.5 py-1.5 font-sans text-[11.5px] text-fg-subtle">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          composing {spec.name.toLowerCase()}…
+        </div>
+      );
+    }
     return (
       <div className="my-2 rounded-sm border border-amber-500/40 bg-amber-500/5 px-3 py-2 font-mono text-[11px]">
         <div className="mb-1 text-amber-700 dark:text-amber-400">
