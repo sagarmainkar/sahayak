@@ -1163,8 +1163,20 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   }
                   return -1;
                 })();
-                return messages.map((m, i) => (
+                // Tracks whether we've already seen a user message so the
+                // fleuron rule only appears BETWEEN exchanges, not above
+                // the very first one.
+                let sawUser = false;
+                return messages.map((m, i) => {
+                  const opensNewExchange = m.role === "user" && sawUser;
+                  if (m.role === "user") sawUser = true;
+                  return (
                   <div key={m.id}>
+                    {opensNewExchange && (
+                      <div className="turn-rule" aria-hidden="true">
+                        ❧
+                      </div>
+                    )}
                     <Turn
                       m={m}
                       assistant={assistant}
@@ -1192,9 +1204,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                         activeSpeakId === m.id && speaker.loading
                       }
                     />
-                    {i < messages.length - 1 && <hr className="turn-rule" />}
                   </div>
-                ));
+                  );
+                });
               })()}
               {pendingApproval && (
                 <ToolApprovalCard

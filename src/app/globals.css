@@ -205,6 +205,71 @@ body {
   font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  position: relative;
+  isolation: isolate;
+}
+
+/* Paper tooth — a fine SVG noise layer fixed to the viewport, multiplied
+   into the background so light ink sits on it naturally. Skipped on the
+   terminal theme because that one's about crisp mono, not paper. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.12 0 0 0 0 0.09 0 0 0 0 0.06 0 0 0 0.45 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+}
+.dark body::before {
+  mix-blend-mode: soft-light;
+  opacity: 0.3;
+}
+.theme-terminal body::before {
+  display: none;
+}
+
+/* Between-exchange ornament. Set in the display serif so it inherits
+   Fraunces' warmth on Correspondence; a glyph fallback keeps it on
+   Editorial and plain-mono on Terminal. */
+.turn-rule {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.9rem;
+  margin: 1.75rem auto;
+  width: min(74ch, 100%);
+  padding: 0 1rem;
+  color: var(--fg-subtle);
+  opacity: 0.55;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-style: italic;
+  letter-spacing: 0.25em;
+  user-select: none;
+}
+.turn-rule::before,
+.turn-rule::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    var(--rule) 20%,
+    var(--rule) 80%,
+    transparent 100%
+  );
+}
+.theme-terminal .turn-rule {
+  font-style: normal;
+  font-family: var(--font-mono);
+  letter-spacing: 0.4em;
+}
+.theme-terminal .turn-rule::before,
+.theme-terminal .turn-rule::after {
+  background: var(--rule);
 }
 
 ::selection {
