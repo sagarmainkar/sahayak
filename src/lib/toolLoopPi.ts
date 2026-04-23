@@ -204,11 +204,13 @@ function attachTranslator(
 function isGated(
   toolName: string,
   autoApproveTools: string[],
-  requireApproval: string[],
+  // Kept in the signature for back-compat with existing call sites
+  // but no longer consulted — every tool is gated by default now.
+  // The old closed-list behaviour let dynamically-discovered MCP
+  // tools (not present in DEFAULT_REQUIRE_APPROVAL) bypass HITL.
+  _requireApproval: string[],
 ): boolean {
-  if (!requireApproval.includes(toolName)) return false;
-  if (autoApproveTools.includes(toolName)) return false;
-  return true;
+  return !autoApproveTools.includes(toolName);
 }
 
 /**

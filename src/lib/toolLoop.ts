@@ -270,9 +270,11 @@ export async function runToolLoop(
       // user approval (unless resumeDecision covers the current index).
       while (state.pendingApprovalIndex < state.pendingToolCalls.length) {
         const tc = state.pendingToolCalls[state.pendingApprovalIndex];
-        const preApproved =
-          !state.requireApproval.includes(tc.name) ||
-          state.autoApproveTools.includes(tc.name);
+        // Every tool is gated by default. autoApproveTools is the only
+        // bypass. The old requireApproval "closed list" approach let
+        // MCP tools (dynamically discovered, never added to the list)
+        // slip past unchecked — a HITL hole this closes.
+        const preApproved = state.autoApproveTools.includes(tc.name);
 
         if (nextDecision === undefined && !preApproved) {
           const token = nanoid(16);
