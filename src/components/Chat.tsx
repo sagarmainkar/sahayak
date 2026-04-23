@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ArrowLeft, Plus, Pencil, Trash2, Archive, Wrench, PanelLeft, Download,
+  ArrowLeft, Plus, Pencil, Trash2, Wrench, PanelLeft, Download,
   RotateCcw, Loader2, Pin, FileText, Search, X as XIcon,
 } from "lucide-react";
 import { Markdown } from "./Markdown";
@@ -13,6 +13,7 @@ import { CapabilityPills } from "./CapabilityPills";
 import { Thinking } from "./Thinking";
 import { TurnTimeline } from "./TurnTimeline";
 import type { TurnTimeline as TTimeline } from "@/lib/types";
+import { ContextPie } from "./ContextPie";
 import { TEMPLATES_BY_ID } from "@/lib/templates";
 import { ToolCard } from "./ToolCard";
 import { Composer } from "./Composer";
@@ -410,9 +411,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }, []);
 
   const ctxMax = currentModel?.contextLength ?? null;
-  const ctxPct = ctxMax ? Math.min(100, (ctx.prompt / ctxMax) * 100) : 0;
-  const ctxClass =
-    ctxPct < 60 ? "bg-emerald-500" : ctxPct < 85 ? "bg-amber-500" : "bg-red-500";
+  // ctxMax used in auto-compact threshold + passed to ContextPie.
+  // The pie component owns its own percent + colour-severity math.
 
   async function ensureSession(firstUserMsg: string): Promise<string> {
     if (sessionId) return sessionId;
@@ -1453,57 +1453,29 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           </div>
           <CapabilityPills model={currentModel} />
           {ctxMax && (
-            <div
-              className="tt flex items-center gap-2 font-mono text-[11px] text-fg-muted md:ml-2"
-              data-tip={`Context: ${ctx.prompt.toLocaleString()} / ${ctxMax.toLocaleString()} tokens`}
-            >
-              <div className="h-1 w-16 overflow-hidden rounded-full bg-bg-muted md:w-32">
-                <div
-                  className={cn("h-full transition-all", ctxClass)}
-                  style={{ width: `${ctxPct}%` }}
-                />
-              </div>
-              {/* Token counts are noisy on a phone — show on ≥sm only. */}
-              <span className="hidden tabular-nums sm:inline">
-                {ctx.prompt.toLocaleString()}/{ctxMax.toLocaleString()}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center gap-1 md:ml-auto">
-            <a
-              href={sessionId ? `/api/sessions/${sessionId}/export` : undefined}
-              className={cn(
-                "tt flex items-center gap-1 rounded border border-border px-2 py-1 font-sans text-[11px]",
-                sessionId
-                  ? "text-fg-muted hover:text-fg"
-                  : "pointer-events-none opacity-40 text-fg-muted",
-              )}
-              data-tip="Export chat as Markdown"
-              aria-label="Export chat"
-              download
-            >
-              <Download className="h-3 w-3" />
-              {/* Text label hidden on mobile; icon + tooltip are enough. */}
-              <span className="hidden md:inline">Export</span>
-            </a>
-            <button
-              onClick={compact}
-              disabled={!sessionId || messages.length < 6 || streaming}
-              className="tt flex items-center gap-1 rounded border border-border px-2 py-1 font-sans text-[11px] text-fg-muted hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
-              data-tip={
+            <ContextPie
+              used={ctx.prompt}
+              total={ctxMax}
+              lastPrompt={ctx.prompt}
+              lastCompletion={ctx.completion}
+              onCompact={compact}
+              canCompact={!!sessionId && messages.length >= 6 && !streaming}
+              compactDisabledReason={
                 !sessionId
                   ? "No session"
                   : messages.length < 6
-                    ? "Needs 6+ messages to compact"
+                    ? "Needs 6+ messages"
                     : streaming
-                      ? "Busy…"
-                      : "Summarise older messages into a single note"
+                      ? "Busy streaming"
+                      : undefined
               }
-              aria-label="Compact chat"
-            >
-              <Archive className="h-3 w-3" />
-              <span className="hidden md:inline">Compact</span>
-            </button>
+              exportHref={
+                sessionId ? `/api/sessions/${sessionId}/export` : undefined
+              }
+              canExport={!!sessionId}
+            />
+          )}
+          <div className="flex items-center gap-1 md:ml-auto">
             <button
               onClick={() => setShowTools((v) => !v)}
               className={cn(
