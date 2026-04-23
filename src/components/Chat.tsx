@@ -1496,7 +1496,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           blocks, news carousels, long URLs) force this column past
           the screen and spawn a horizontal scrollbar on mobile. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-3 border-b border-border bg-bg-elev px-4 py-2">
+        <header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-bg-elev px-3 py-2 md:flex-nowrap md:gap-x-3 md:px-4">
           <button
             onClick={() => setShowSidebar((v) => !v)}
             className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"
@@ -1506,7 +1506,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             <PanelLeft className="h-4 w-4" />
           </button>
           <div
-            className="tt rounded-sm bg-bg-paper px-2 py-1 font-mono text-[11px] text-fg-muted"
+            className="tt max-w-[140px] truncate rounded-sm bg-bg-paper px-2 py-1 font-mono text-[11px] text-fg-muted md:max-w-none"
             data-tip="Model is set in the assistant editor"
           >
             {activeModel}
@@ -1514,21 +1514,22 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           <CapabilityPills model={currentModel} />
           {ctxMax && (
             <div
-              className="tt ml-2 flex items-center gap-2 font-mono text-[11px] text-fg-muted"
+              className="tt flex items-center gap-2 font-mono text-[11px] text-fg-muted md:ml-2"
               data-tip={`Context: ${ctx.prompt.toLocaleString()} / ${ctxMax.toLocaleString()} tokens`}
             >
-              <div className="h-1 w-32 overflow-hidden rounded-full bg-bg-muted">
+              <div className="h-1 w-16 overflow-hidden rounded-full bg-bg-muted md:w-32">
                 <div
                   className={cn("h-full transition-all", ctxClass)}
                   style={{ width: `${ctxPct}%` }}
                 />
               </div>
-              <span className="tabular-nums">
+              {/* Token counts are noisy on a phone — show on ≥sm only. */}
+              <span className="hidden tabular-nums sm:inline">
                 {ctx.prompt.toLocaleString()}/{ctxMax.toLocaleString()}
               </span>
             </div>
           )}
-          <div className="ml-auto flex items-center gap-1">
+          <div className="flex items-center gap-1 md:ml-auto">
             <a
               href={sessionId ? `/api/sessions/${sessionId}/export` : undefined}
               className={cn(
@@ -1538,10 +1539,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   : "pointer-events-none opacity-40 text-fg-muted",
               )}
               data-tip="Export chat as Markdown"
+              aria-label="Export chat"
               download
             >
               <Download className="h-3 w-3" />
-              Export
+              {/* Text label hidden on mobile; icon + tooltip are enough. */}
+              <span className="hidden md:inline">Export</span>
             </a>
             <button
               onClick={compact}
@@ -1556,9 +1559,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                       ? "Busy…"
                       : "Summarise older messages into a single note"
               }
+              aria-label="Compact chat"
             >
               <Archive className="h-3 w-3" />
-              Compact
+              <span className="hidden md:inline">Compact</span>
             </button>
             <button
               onClick={() => setShowTools((v) => !v)}
@@ -1569,9 +1573,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   : "border-border text-fg-muted hover:text-fg",
               )}
               data-tip="Toggle tool panel"
+              aria-label="Toggle tool panel"
             >
               <Wrench className="h-3 w-3" />
-              Tools · {enabledTools.length}
+              <span className="hidden md:inline">
+                Tools · {enabledTools.length}
+              </span>
+              <span className="md:hidden">{enabledTools.length}</span>
             </button>
             <StyleSwitcher />
             <ThemeToggle />
