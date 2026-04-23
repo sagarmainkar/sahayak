@@ -302,6 +302,15 @@ body::before {
   color: var(--fg);
   font-variant-numeric: oldstyle-nums proportional-nums;
   font-feature-settings: "kern", "liga", "onum";
+  /* Narrow viewports: break absurdly long tokens (URLs, hashes, file
+     paths) instead of forcing the container past the screen width. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* Pre blocks scroll themselves rather than pushing the page wider. */
+.prose :where(pre) {
+  overflow-x: auto;
+  max-width: 100%;
 }
 .theme-terminal .prose {
   font-variant-numeric: normal;

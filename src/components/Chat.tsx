@@ -1491,8 +1491,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         </aside>
       )}
 
-      {/* main column */}
-      <div className="flex flex-1 flex-col">
+      {/* main column. `min-w-0` is the classic fix for flex-1 eating
+          horizontal viewport: without it, wide descendants (code
+          blocks, news carousels, long URLs) force this column past
+          the screen and spawn a horizontal scrollbar on mobile. */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-3 border-b border-border bg-bg-elev px-4 py-2">
           <button
             onClick={() => setShowSidebar((v) => !v)}
@@ -1575,10 +1578,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           </div>
         </header>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex min-w-0 flex-1 overflow-hidden">
           <div
             ref={scrollRef}
-            className="relative flex-1 overflow-y-auto"
+            className="relative min-w-0 flex-1 overflow-y-auto overflow-x-hidden"
             onDragEnter={(e) => {
               e.preventDefault();
               setIsDragging(true);
