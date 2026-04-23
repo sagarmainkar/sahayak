@@ -207,7 +207,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [allTools, setAllTools] = useState<ToolPublic[]>([]);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  // null = not loaded yet. Distinguishes "loading" from "loaded and
+  // genuinely empty" so the sidebar can show a spinner instead of
+  // lying with 'no chats yet' while the first fetch is still in flight.
+  const [sessions, setSessions] = useState<Session[] | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Ref mirror kept in sync with state so async work (e.g. auto-compact
@@ -1003,9 +1006,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   async function togglePinSession(id: string, nextPinned: boolean) {
     // Optimistic — flip locally, then PATCH. Refresh list on response.
     setSessions((prev) =>
-      prev.map((s) =>
-        s.id === id ? { ...s, pinned: nextPinned } : s,
-      ),
+      prev
+        ? prev.map((s) =>
+            s.id === id ? { ...s, pinned: nextPinned } : s,
+          )
+        : prev,
     );
     try {
       await fetch(`/api/sessions/${id}`, {
@@ -1016,9 +1021,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     } catch {
       // revert on failure
       setSessions((prev) =>
-        prev.map((s) =>
-          s.id === id ? { ...s, pinned: !nextPinned } : s,
-        ),
+        prev
+          ? prev.map((s) =>
+              s.id === id ? { ...s, pinned: !nextPinned } : s,
+            )
+          : prev,
       );
     }
   }
@@ -1335,12 +1342,17 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               )
             ) : (
               <>
-                {sessions.length === 0 && (
+                {sessions === null ? (
+                  <div className="flex items-center justify-center gap-2 px-2 py-6 font-serif text-[12px] italic text-fg-subtle">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    loading chats…
+                  </div>
+                ) : sessions.length === 0 ? (
                   <div className="px-2 py-4 text-center font-serif text-[12px] italic text-fg-subtle">
                     no chats yet
                   </div>
-                )}
-                {sessions.map((s) => (
+                ) : null}
+                {(sessions ?? []).map((s) => (
               <div
                 key={s.id}
                 className={cn(
