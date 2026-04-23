@@ -2,10 +2,29 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { spawn } from "node:child_process";
 import { OfficeParser } from "officeparser";
 import type { OfficeContentNode } from "officeparser";
 
 const UPLOADS_DIR = path.join(process.cwd(), "data", "uploads");
+
+// Optional local Python extractor. Users who've run
+// `npm run setup:python` get a venv at python/.venv with the
+// richer docx/xlsx/pptx parsers AND encrypted-PDF support.
+// Users who haven't get the pure-JS officeparser fallback for
+// everything except encrypted PDFs (which we can't handle without
+// Python since pdfjs-dist doesn't take passwords).
+const PY_DIR = path.join(process.cwd(), "python");
+const VENV_PY = path.join(
+  PY_DIR,
+  ".venv",
+  process.platform === "win32" ? "Scripts" : "bin",
+  process.platform === "win32" ? "python.exe" : "python3",
+);
+const EXTRACT_SCRIPT = path.join(PY_DIR, "extract_doc.py");
+function hasPythonExtractor(): boolean {
+  return existsSync(VENV_PY) && existsSync(EXTRACT_SCRIPT);
+}
 
 /** Hard cap on inlined extracted text per attachment (characters). */
 const DOC_TEXT_CAP = 50_000;
@@ -98,10 +117,10 @@ function nodeText(node: OfficeContentNode): string {
   return pieces.join(node.type === "cell" ? " | " : "\n");
 }
 
-/** Pure-Node document extraction. Replaces the previous python +
- *  pdftotext shellouts. officeparser covers docx/xlsx/pptx/pdf/odt/ods
- *  with zero native deps — drops Python entirely from the install. */
-async function runExtract(srcPath: string): Promise<string> {
+/** Pure-JS fallback: officeparser covers docx/xlsx/pptx/pdf/odt/ods
+ *  with zero native deps. Can't decrypt password-protected PDFs — for
+ *  those we need the Python path below. */
+async function extractWithOfficeparser(srcPath: string): Promise<string> {
   const ast = await OfficeParser.parseOffice(srcPath, {
     extractAttachments: false,
     ocr: false,
@@ -115,10 +134,10 @@ async function runExtract(srcPath: string): Promise<string> {
   return parts.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-/** Legacy type — the pdftotext encryption-detection path is gone with
- *  the Python migration. Kept exported so any lingering imports (api
- *  route, Composer) type-check; PdfEncryptedError is no longer thrown
- *  from this module. */
+/** Thrown when a PDF is encrypted. `badPassword=true` means we tried
+ *  a password and it was wrong; `false` means no password was supplied
+ *  and one is required. The /api/uploads route surfaces this to the
+ *  client so the composer can prompt. */
 export class PdfEncryptedError extends Error {
   readonly kind = "pdf_encrypted";
   constructor(message: string, readonly badPassword: boolean) {
@@ -127,14 +146,48 @@ export class PdfEncryptedError extends Error {
   }
 }
 
+/** Run python/extract_doc.py via the local venv. Translates the
+ *  script's exit codes (65 = needs password, 66 = wrong password)
+ *  into PdfEncryptedError so the upload route can surface the
+ *  password prompt. Returns the extracted text on exit 0. */
+function extractWithPython(
+  srcPath: string,
+  password?: string,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const args = [EXTRACT_SCRIPT, srcPath];
+    if (password) args.push("--password", password);
+    const child = spawn(VENV_PY, args);
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on("data", (d: Buffer) => out.push(d));
+    child.stderr.on("data", (d: Buffer) => err.push(d));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const stderr = Buffer.concat(err).toString("utf8").trim();
+      if (code === 0) {
+        resolve(Buffer.concat(out).toString("utf8"));
+        return;
+      }
+      if (code === 65) {
+        reject(new PdfEncryptedError(stderr, false));
+        return;
+      }
+      if (code === 66) {
+        reject(new PdfEncryptedError(stderr, true));
+        return;
+      }
+      reject(
+        new Error(`extract ${code}: ${stderr.slice(0, 200) || "(no stderr)"}`),
+      );
+    });
+  });
+}
+
 async function extractDocumentText(
   srcPath: string,
   ext: string,
-  // `password` is still in the signature so the upload route + Composer
-  // password-prompt flow type-check, but we no longer use it — dropping
-  // pdftotext means encrypted PDFs error out. A ~rare case; user can
-  // decrypt externally if they hit it.
-  _password?: string,
+  password?: string,
 ): Promise<string> {
   let raw: string;
   if (ext === "md" || ext === "txt" || ext === "csv") {
@@ -145,7 +198,34 @@ async function extractDocumentText(
     ext === "xlsx" ||
     ext === "pptx"
   ) {
-    raw = await runExtract(srcPath);
+    // Prefer Python when the venv exists — richer parsers + encrypted
+    // PDF support. Without it, officeparser handles everything except
+    // encrypted PDFs (those will fail at the parseOffice call with a
+    // generic error; we translate to PdfEncryptedError so the UI can
+    // still ask for a password and a subsequent request-with-python
+    // succeeds if the user sets up the venv).
+    if (hasPythonExtractor()) {
+      raw = await extractWithPython(srcPath, password);
+    } else {
+      try {
+        raw = await extractWithOfficeparser(srcPath);
+      } catch (e) {
+        // Heuristic: pdfjs throws a PasswordException / generic Error
+        // when asked to read an encrypted PDF. Surface as our typed
+        // error so the Composer's password prompt still appears, even
+        // though we can't actually satisfy it without Python.
+        if (
+          ext === "pdf" &&
+          /password|encrypt/i.test((e as Error).message)
+        ) {
+          throw new PdfEncryptedError(
+            "Encrypted PDF — run `npm run setup:python` to enable password-based extraction.",
+            false,
+          );
+        }
+        throw e;
+      }
+    }
   } else {
     throw new Error(`no extractor for .${ext}`);
   }

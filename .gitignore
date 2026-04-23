@@ -67,7 +67,10 @@ next-env.d.ts
 /*.md
 !/README.md
 
-# Local Python venv for the document extractors. Pure-Node fallback
-# handles most cases; the venv is only needed for password-protected
-# PDFs + richer Office file handling.
-/.venv
+# Local Python venvs for the document extractors. Pure-Node fallback
+# handles most cases; venv is only needed for password-protected PDFs
+# + richer Office file handling. Match at any depth — the setup
+# script currently puts it at python/.venv but future tooling might
+# choose a different location.
+.venv/
+**/.venv/

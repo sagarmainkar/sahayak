@@ -6,7 +6,8 @@
     "dev": "next dev -p 9999",
     "build": "next build",
     "start": "next start -p 9999",
-    "lint": "eslint"
+    "lint": "eslint",
+    "setup:python": "node scripts/setup-python.mjs"
   },
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.68.1",
