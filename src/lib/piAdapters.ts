@@ -2,7 +2,7 @@ import { Type, type Message, type Model, type TextContent } from "@mariozechner/
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { OLLAMA_URL } from "@/lib/ollama";
-import { TOOLS_BY_NAME } from "@/lib/tools";
+import { resolveTool } from "@/lib/tools";
 import type { ToolSpec } from "@/lib/tools/types";
 import { readUpload, readUploadText } from "@/lib/uploads";
 import type { ClientMsg } from "@/lib/toolLoop";
@@ -95,9 +95,11 @@ export function piToolFromSpec(spec: ToolSpec): AgentTool {
   };
 }
 
-export function piToolsFromEnabled(enabled: string[]): AgentTool[] {
-  return enabled
-    .map((n) => TOOLS_BY_NAME[n])
+export async function piToolsFromEnabled(
+  enabled: string[],
+): Promise<AgentTool[]> {
+  const specs = await Promise.all(enabled.map((n) => resolveTool(n)));
+  return specs
     .filter((s): s is ToolSpec => !!s)
     .map(piToolFromSpec);
 }

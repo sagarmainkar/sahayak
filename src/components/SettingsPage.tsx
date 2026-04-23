@@ -450,7 +450,276 @@ export function SettingsPage() {
           )}
         </div>
       </section>
+
+      <McpServersSection />
     </main>
+  );
+}
+
+type McpServerSummary = {
+  server: {
+    id: string;
+    name: string;
+    command: string;
+    args: string[];
+    env?: Record<string, string>;
+    enabled: boolean;
+  };
+  status:
+    | { kind: "disconnected" }
+    | { kind: "connecting" }
+    | { kind: "ready"; tools: number }
+    | { kind: "error"; message: string };
+  tools: { name: string; description: string }[];
+};
+
+function McpServersSection() {
+  const [servers, setServers] = useState<McpServerSummary[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCommand, setNewCommand] = useState("npx");
+  const [newArgs, setNewArgs] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+
+  async function load() {
+    const r = await fetch("/api/mcp");
+    if (r.ok) {
+      const d = (await r.json()) as { servers: McpServerSummary[] };
+      setServers(d.servers);
+    }
+  }
+  useEffect(() => {
+    // Match the cleanup + load pattern used elsewhere in this file;
+    // the set-state-in-effect lint rule is overzealous for an initial
+    // data load.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load();
+  }, []);
+
+  async function add() {
+    setBusy(true);
+    setAddError(null);
+    try {
+      const args = newArgs
+        .trim()
+        .split(/\s+/)
+        .filter((a) => a.length > 0);
+      const r = await fetch("/api/mcp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newName.trim(),
+          command: newCommand.trim(),
+          args,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error ?? `HTTP ${r.status}`);
+      }
+      setNewName("");
+      setNewArgs("");
+      setShowAdd(false);
+      await load();
+    } catch (e) {
+      setAddError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggle(id: string, enabled: boolean) {
+    await fetch(`/api/mcp/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    await load();
+  }
+
+  async function remove(id: string) {
+    if (!confirm("Remove this MCP server?")) return;
+    await fetch(`/api/mcp/${id}`, { method: "DELETE" });
+    await load();
+  }
+
+  async function reconnect(id: string) {
+    setBusy(true);
+    try {
+      await fetch(`/api/mcp/${id}`, { method: "POST" });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="byline">MCP servers</h2>
+        <button
+          onClick={() => setShowAdd((v) => !v)}
+          className="tt flex items-center gap-1 rounded border border-border px-2 py-0.5 font-sans text-[10.5px] text-fg-muted hover:border-accent hover:text-fg"
+          data-tip={showAdd ? "Cancel" : "Add server"}
+        >
+          {showAdd ? "cancel" : "+ add"}
+        </button>
+      </div>
+
+      <p className="mb-3 font-serif text-[12.5px] italic text-fg-muted">
+        Register Model Context Protocol servers over stdio. Their tools
+        appear in every assistant&apos;s tool picker as{" "}
+        <span className="font-mono not-italic">mcp:name:tool</span>; flip
+        them on per-assistant like any native tool.
+      </p>
+
+      {showAdd && (
+        <div className="mb-3 flex flex-col gap-2 rounded border border-border bg-bg-paper p-3">
+          <div className="flex gap-2">
+            <label className="flex-1">
+              <div className="byline mb-1">name</div>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="filesystem"
+                className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+              />
+            </label>
+            <label className="w-32">
+              <div className="byline mb-1">command</div>
+              <input
+                value={newCommand}
+                onChange={(e) => setNewCommand(e.target.value)}
+                className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+              />
+            </label>
+          </div>
+          <label>
+            <div className="byline mb-1">args (space-separated)</div>
+            <input
+              value={newArgs}
+              onChange={(e) => setNewArgs(e.target.value)}
+              placeholder="-y @modelcontextprotocol/server-filesystem /home/ubuntu"
+              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+            />
+          </label>
+          {addError && (
+            <div className="font-mono text-[11px] text-red-500">
+              {addError}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button
+              onClick={add}
+              disabled={busy || !newName.trim() || !newCommand.trim()}
+              className="rounded bg-accent px-3 py-1 font-sans text-[11.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
+            >
+              {busy ? "Adding…" : "Add server"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {servers === null ? (
+        <div className="py-4 text-center font-serif text-[12px] italic text-fg-subtle">
+          loading…
+        </div>
+      ) : servers.length === 0 ? (
+        <div className="py-4 text-center font-serif text-[12px] italic text-fg-subtle">
+          no MCP servers registered yet
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {servers.map((s) => {
+            const statusColor =
+              s.status.kind === "ready"
+                ? "text-emerald-600 dark:text-emerald-400"
+                : s.status.kind === "error"
+                  ? "text-red-600 dark:text-red-400"
+                  : s.status.kind === "connecting"
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-fg-subtle";
+            const statusText =
+              s.status.kind === "ready"
+                ? `ready · ${s.status.tools} tool${s.status.tools === 1 ? "" : "s"}`
+                : s.status.kind === "error"
+                  ? `error · ${s.status.message.slice(0, 80)}`
+                  : s.status.kind === "connecting"
+                    ? "connecting…"
+                    : s.server.enabled
+                      ? "idle"
+                      : "disabled";
+            return (
+              <div
+                key={s.server.id}
+                className="flex items-start gap-3 py-2.5"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="font-mono text-[13px] text-fg">
+                      {s.server.name}
+                    </span>
+                    <span
+                      className={cn(
+                        "font-mono text-[10.5px]",
+                        statusColor,
+                      )}
+                    >
+                      {statusText}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 truncate font-mono text-[11px] text-fg-subtle">
+                    {s.server.command} {s.server.args.join(" ")}
+                  </div>
+                  {s.tools.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {s.tools.map((t) => (
+                        <span
+                          key={t.name}
+                          title={t.description}
+                          className="rounded-sm bg-bg-muted px-1.5 py-[1px] font-mono text-[9.5px] text-fg-subtle"
+                        >
+                          {t.name.replace(/^mcp:[^:]+:/, "")}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-1.5">
+                  <button
+                    onClick={() => reconnect(s.server.id)}
+                    disabled={busy || !s.server.enabled}
+                    className="tt rounded p-1 text-fg-subtle hover:bg-bg-muted hover:text-fg disabled:opacity-40"
+                    data-tip="Reconnect + relist tools"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
+                  <button
+                    onClick={() => toggle(s.server.id, !s.server.enabled)}
+                    className={cn(
+                      "rounded border px-1.5 py-0.5 font-mono text-[10px]",
+                      s.server.enabled
+                        ? "border-accent/40 text-accent"
+                        : "border-border text-fg-subtle",
+                    )}
+                  >
+                    {s.server.enabled ? "on" : "off"}
+                  </button>
+                  <button
+                    onClick={() => remove(s.server.id)}
+                    className="tt rounded p-1 text-fg-subtle hover:bg-bg-muted hover:text-red-500"
+                    data-tip="Remove"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 

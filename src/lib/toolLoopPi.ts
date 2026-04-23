@@ -227,7 +227,7 @@ export async function startPiRun(
 ): Promise<void> {
   sweep();
   const model = piModelForOllama(input.model);
-  const tools = piToolsFromEnabled(input.enabledTools);
+  const tools = await piToolsFromEnabled(input.enabledTools);
   const messages = await toPiMessages(input.clientMessages);
   // Mutable in place so resume's splice(0, ..., list) is visible to
   // beforeToolCall's isGated() check on the next pause.

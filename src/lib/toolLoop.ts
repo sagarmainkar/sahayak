@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { OLLAMA_URL } from "@/lib/ollama";
-import { ALL_TOOLS, TOOLS_BY_NAME, toolsForOllama } from "@/lib/tools";
+import { ALL_TOOLS, resolveTool, toolsForOllama } from "@/lib/tools";
 import { readUpload, readUploadText } from "@/lib/uploads";
 import { REACT_ARTIFACT_INSTRUCTIONS } from "@/lib/store";
 import { setPaused, type PausedLoop } from "@/lib/approvalStore";
@@ -125,7 +125,7 @@ function sse(
 /** Ask Ollama for one turn; stream content/thinking deltas through. */
 async function callOllama(
   state: PausedLoop,
-  toolDefs: ReturnType<typeof toolsForOllama>,
+  toolDefs: Awaited<ReturnType<typeof toolsForOllama>>,
   controller: ReadableStreamDefaultController<Uint8Array>,
   dec: TextDecoder,
 ): Promise<{
@@ -222,7 +222,7 @@ export async function runToolLoop(
 ): Promise<void> {
   const dec = new TextDecoder();
   const toolDefs = state.enabledTools.length
-    ? toolsForOllama(state.enabledTools)
+    ? await toolsForOllama(state.enabledTools)
     : [];
 
   let nextDecision = resumeDecision;
@@ -307,7 +307,7 @@ export async function runToolLoop(
             message: `The user declined to approve the ${tc.name} call.`,
           };
         } else {
-          const spec = TOOLS_BY_NAME[tc.name];
+          const spec = await resolveTool(tc.name);
           if (!spec) {
             result = {
               ok: false,

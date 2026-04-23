@@ -5,11 +5,16 @@ export type ToolResult = {
 
 export type ToolSpec = {
   name: string;
-  group: "fs" | "shell" | "web" | "gmail" | "memory";
+  /** Native groups are a closed set; MCP tools carry "mcp:<serverName>"
+   *  so the UI can bucket them alongside the native groups. */
+  group: string;
   description: string;
   parameters: {
     type: "object";
-    properties: Record<string, { type: string; description?: string; enum?: string[] }>;
+    properties: Record<
+      string,
+      { type?: string; description?: string; enum?: unknown }
+    >;
     required?: string[];
   };
   handler: (args: Record<string, unknown>) => Promise<ToolResult>;
