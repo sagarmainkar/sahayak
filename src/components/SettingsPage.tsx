@@ -460,9 +460,14 @@ type McpServerSummary = {
   server: {
     id: string;
     name: string;
-    command: string;
-    args: string[];
+    transport?: "stdio" | "http";
+    // stdio:
+    command?: string;
+    args?: string[];
     env?: Record<string, string>;
+    // http:
+    url?: string;
+    headers?: Record<string, string>;
     enabled: boolean;
   };
   status:
@@ -473,14 +478,60 @@ type McpServerSummary = {
   tools: { name: string; description: string }[];
 };
 
+function TransportTab({
+  active,
+  onClick,
+  label,
+  sublabel,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  sublabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded border px-2.5 py-1 text-left transition",
+        active
+          ? "border-accent bg-accent/10"
+          : "border-border hover:bg-bg-muted",
+      )}
+    >
+      <div className="font-mono text-[11px] text-fg">{label}</div>
+      <div className="font-sans text-[9.5px] text-fg-subtle">
+        {sublabel}
+      </div>
+    </button>
+  );
+}
+
 function McpServersSection() {
   const [servers, setServers] = useState<McpServerSummary[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
+  const [addTransport, setAddTransport] = useState<"stdio" | "http">(
+    "stdio",
+  );
   const [newName, setNewName] = useState("");
   const [newCommand, setNewCommand] = useState("npx");
   const [newArgs, setNewArgs] = useState("");
+  const [newUrl, setNewUrl] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
+
+  /** Open the Add form pre-filled for a Zapier MCP connection. The URL
+   *  shape is personal — Zapier gives each user a per-account URL of the
+   *  form https://mcp.zapier.com/api/mcp/s/<token>/mcp. We drop an empty
+   *  string in so the user just pastes. */
+  function startZapierAdd() {
+    setShowAdd(true);
+    setAddTransport("http");
+    setNewName("zapier");
+    setNewUrl("");
+    setAddError(null);
+  }
 
   async function load() {
     const r = await fetch("/api/mcp");
@@ -501,18 +552,26 @@ function McpServersSection() {
     setBusy(true);
     setAddError(null);
     try {
-      const args = newArgs
-        .trim()
-        .split(/\s+/)
-        .filter((a) => a.length > 0);
+      const payload =
+        addTransport === "http"
+          ? {
+              transport: "http",
+              name: newName.trim(),
+              url: newUrl.trim(),
+            }
+          : {
+              transport: "stdio",
+              name: newName.trim(),
+              command: newCommand.trim(),
+              args: newArgs
+                .trim()
+                .split(/\s+/)
+                .filter((a) => a.length > 0),
+            };
       const r = await fetch("/api/mcp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newName.trim(),
-          command: newCommand.trim(),
-          args,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -520,6 +579,7 @@ function McpServersSection() {
       }
       setNewName("");
       setNewArgs("");
+      setNewUrl("");
       setShowAdd(false);
       await load();
     } catch (e) {
@@ -556,54 +616,121 @@ function McpServersSection() {
 
   return (
     <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="byline">MCP servers</h2>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <h2 className="byline mr-auto">MCP servers</h2>
         <button
-          onClick={() => setShowAdd((v) => !v)}
+          onClick={startZapierAdd}
+          className="tt flex items-center gap-1.5 rounded border border-border bg-bg-paper px-2 py-0.5 font-sans text-[10.5px] text-fg-muted hover:border-accent hover:text-fg"
+          data-tip="Pre-filled form for a Zapier MCP URL"
+        >
+          <span className="text-[13px]">⚡</span>
+          add zapier
+        </button>
+        <button
+          onClick={() => {
+            setShowAdd((v) => !v);
+            setAddTransport("stdio");
+          }}
           className="tt flex items-center gap-1 rounded border border-border px-2 py-0.5 font-sans text-[10.5px] text-fg-muted hover:border-accent hover:text-fg"
           data-tip={showAdd ? "Cancel" : "Add server"}
         >
-          {showAdd ? "cancel" : "+ add"}
+          {showAdd ? "cancel" : "+ add custom"}
         </button>
       </div>
 
       <p className="mb-3 font-serif text-[12.5px] italic text-fg-muted">
-        Register Model Context Protocol servers over stdio. Their tools
-        appear in every assistant&apos;s tool picker as{" "}
+        Register Model Context Protocol servers — either local stdio
+        processes or remote HTTP endpoints (Zapier, self-hosted, etc.).
+        Their tools appear in every assistant&apos;s tool picker as{" "}
         <span className="font-mono not-italic">mcp:name:tool</span>; flip
         them on per-assistant like any native tool.
       </p>
 
       {showAdd && (
         <div className="mb-3 flex flex-col gap-2 rounded border border-border bg-bg-paper p-3">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <label className="flex-1">
-              <div className="byline mb-1">name</div>
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="filesystem"
-                className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
-              />
-            </label>
-            <label className="sm:w-32">
-              <div className="byline mb-1">command</div>
-              <input
-                value={newCommand}
-                onChange={(e) => setNewCommand(e.target.value)}
-                className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
-              />
-            </label>
-          </div>
-          <label>
-            <div className="byline mb-1">args (space-separated)</div>
-            <input
-              value={newArgs}
-              onChange={(e) => setNewArgs(e.target.value)}
-              placeholder="-y @modelcontextprotocol/server-filesystem /home/ubuntu"
-              className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+          <div className="flex items-center gap-1">
+            <TransportTab
+              active={addTransport === "stdio"}
+              onClick={() => setAddTransport("stdio")}
+              label="stdio"
+              sublabel="local process"
             />
-          </label>
+            <TransportTab
+              active={addTransport === "http"}
+              onClick={() => setAddTransport("http")}
+              label="http"
+              sublabel="remote URL"
+            />
+          </div>
+          {addTransport === "stdio" ? (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <label className="flex-1">
+                  <div className="byline mb-1">name</div>
+                  <input
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="filesystem"
+                    className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+                  />
+                </label>
+                <label className="sm:w-32">
+                  <div className="byline mb-1">command</div>
+                  <input
+                    value={newCommand}
+                    onChange={(e) => setNewCommand(e.target.value)}
+                    className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+                  />
+                </label>
+              </div>
+              <label>
+                <div className="byline mb-1">args (space-separated)</div>
+                <input
+                  value={newArgs}
+                  onChange={(e) => setNewArgs(e.target.value)}
+                  placeholder="-y @modelcontextprotocol/server-filesystem /home/ubuntu"
+                  className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                <div className="byline mb-1">name</div>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="zapier"
+                  className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+                />
+              </label>
+              <label>
+                <div className="byline mb-1 flex items-center gap-2">
+                  <span>url</span>
+                  {newName === "zapier" && (
+                    <a
+                      href="https://mcp.zapier.com/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-[9px] lowercase tracking-wider text-accent hover:underline"
+                    >
+                      get your zapier mcp url ↗
+                    </a>
+                  )}
+                </div>
+                <input
+                  value={newUrl}
+                  onChange={(e) => setNewUrl(e.target.value)}
+                  placeholder="https://mcp.zapier.com/api/mcp/s/<token>/mcp"
+                  className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+                />
+                <div className="mt-1 font-serif text-[11px] italic text-fg-subtle">
+                  Zapier personalises the URL per account; auth lives in
+                  the path so no extra headers are needed.
+                </div>
+              </label>
+            </>
+          )}
           {addError && (
             <div className="font-mono text-[11px] text-red-500">
               {addError}
@@ -612,7 +739,12 @@ function McpServersSection() {
           <div className="flex justify-end">
             <button
               onClick={add}
-              disabled={busy || !newName.trim() || !newCommand.trim()}
+              disabled={
+                busy ||
+                !newName.trim() ||
+                (addTransport === "stdio" && !newCommand.trim()) ||
+                (addTransport === "http" && !newUrl.trim())
+              }
               className="rounded bg-accent px-3 py-1 font-sans text-[11.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
             >
               {busy ? "Adding…" : "Add server"}
@@ -670,7 +802,18 @@ function McpServersSection() {
                     </span>
                   </div>
                   <div className="mt-0.5 truncate font-mono text-[11px] text-fg-subtle">
-                    {s.server.command} {s.server.args.join(" ")}
+                    {(s.server.transport ?? "stdio") === "http" ? (
+                      <>
+                        <span className="mr-1.5 rounded-sm bg-bg-muted px-1 py-[1px] text-[9px] uppercase tracking-wider">
+                          http
+                        </span>
+                        {s.server.url}
+                      </>
+                    ) : (
+                      <>
+                        {s.server.command} {(s.server.args ?? []).join(" ")}
+                      </>
+                    )}
                   </div>
                   {s.tools.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">

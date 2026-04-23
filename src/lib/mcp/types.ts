@@ -1,13 +1,27 @@
+export type McpTransport = "stdio" | "http";
+
 export type McpServer = {
   id: string;
   /** Human-readable name — used as the prefix in exposed tool names,
    *  so keep it short and filesystem-safe (no colons/spaces). */
   name: string;
-  /** stdio spawn command + args. Transport is always stdio in v1. */
-  command: string;
-  args: string[];
+  /** How Sahayak reaches this server. Default "stdio" for back-compat
+   *  with the earliest mcp.json entries that predate HTTP support. */
+  transport?: McpTransport;
+  // ── stdio ────────────────────────────────────────────────────────
+  /** stdio spawn command. Required when transport === "stdio". */
+  command?: string;
+  args?: string[];
   /** Optional environment overrides spliced into the spawned process. */
   env?: Record<string, string>;
+  // ── http (streamable HTTP / SSE) ─────────────────────────────────
+  /** Full endpoint URL, required when transport === "http". Zapier's
+   *  per-user URL looks like https://mcp.zapier.com/api/mcp/s/<id>/mcp. */
+  url?: string;
+  /** Custom headers to include on every HTTP request (e.g. `Authorization`
+   *  for API-key servers). Zapier-style URLs carry auth in the path and
+   *  need no headers; other hosts may require an Authorization header. */
+  headers?: Record<string, string>;
   enabled: boolean;
   createdAt: number;
 };

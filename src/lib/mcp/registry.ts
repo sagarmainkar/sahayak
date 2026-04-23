@@ -4,6 +4,8 @@ import path from "node:path";
 import { nanoid } from "nanoid";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { McpServer, McpServerStatus, McpTool } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -11,7 +13,7 @@ const MCP_FILE = path.join(DATA_DIR, "mcp.json");
 
 type PoolEntry = {
   client: Client | null;
-  transport: StdioClientTransport | null;
+  transport: Transport | null;
   status: McpServerStatus;
   tools: McpTool[];
   connectingPromise: Promise<void> | null;
@@ -33,15 +35,16 @@ async function loadServers(): Promise<McpServer[]> {
     const raw = await fs.readFile(MCP_FILE, "utf8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (s): s is McpServer =>
-        !!s &&
-        typeof s === "object" &&
-        typeof s.id === "string" &&
-        typeof s.name === "string" &&
-        typeof s.command === "string" &&
-        Array.isArray(s.args),
-    );
+    return parsed.filter((s): s is McpServer => {
+      if (!s || typeof s !== "object") return false;
+      if (typeof s.id !== "string" || typeof s.name !== "string") return false;
+      const transport = s.transport ?? "stdio";
+      if (transport === "http") {
+        return typeof s.url === "string" && s.url.length > 0;
+      }
+      // stdio default
+      return typeof s.command === "string" && Array.isArray(s.args);
+    });
   } catch {
     return [];
   }
@@ -56,27 +59,50 @@ export async function listServers(): Promise<McpServer[]> {
   return loadServers();
 }
 
-export async function addServer(input: {
-  name: string;
-  command: string;
-  args: string[];
-  env?: Record<string, string>;
-}): Promise<McpServer> {
+export async function addServer(
+  input:
+    | {
+        transport?: "stdio";
+        name: string;
+        command: string;
+        args: string[];
+        env?: Record<string, string>;
+      }
+    | {
+        transport: "http";
+        name: string;
+        url: string;
+        headers?: Record<string, string>;
+      },
+): Promise<McpServer> {
   const list = await loadServers();
   const clean = input.name.trim().replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 32);
   if (!clean) throw new Error("name required");
   if (list.some((s) => s.name === clean)) {
     throw new Error(`server name '${clean}' already exists`);
   }
-  const server: McpServer = {
-    id: nanoid(12),
-    name: clean,
-    command: input.command.trim(),
-    args: input.args,
-    env: input.env,
-    enabled: true,
-    createdAt: Date.now(),
-  };
+  const transport = input.transport ?? "stdio";
+  const server: McpServer =
+    transport === "http"
+      ? {
+          id: nanoid(12),
+          name: clean,
+          transport: "http",
+          url: (input as { url: string }).url.trim(),
+          headers: (input as { headers?: Record<string, string> }).headers,
+          enabled: true,
+          createdAt: Date.now(),
+        }
+      : {
+          id: nanoid(12),
+          name: clean,
+          transport: "stdio",
+          command: (input as { command: string }).command.trim(),
+          args: (input as { args: string[] }).args,
+          env: (input as { env?: Record<string, string> }).env,
+          enabled: true,
+          createdAt: Date.now(),
+        };
   list.push(server);
   await saveServers(list);
   return server;
@@ -143,13 +169,28 @@ async function connectOne(server: McpServer): Promise<PoolEntry> {
 
   entry.connectingPromise = (async () => {
     try {
-      const transport = new StdioClientTransport({
-        command: server.command,
-        args: server.args,
-        env: server.env
-          ? { ...(process.env as Record<string, string>), ...server.env }
-          : (process.env as Record<string, string>),
-      });
+      const transportKind = server.transport ?? "stdio";
+      let transport: Transport;
+      if (transportKind === "http") {
+        if (!server.url) throw new Error("http transport: url required");
+        transport = new StreamableHTTPClientTransport(new URL(server.url), {
+          requestInit:
+            server.headers && Object.keys(server.headers).length
+              ? { headers: server.headers }
+              : undefined,
+        });
+      } else {
+        if (!server.command) {
+          throw new Error("stdio transport: command required");
+        }
+        transport = new StdioClientTransport({
+          command: server.command,
+          args: server.args ?? [],
+          env: server.env
+            ? { ...(process.env as Record<string, string>), ...server.env }
+            : (process.env as Record<string, string>),
+        });
+      }
       const client = new Client(
         { name: "sahayak", version: "0.1.0" },
         { capabilities: {} },
