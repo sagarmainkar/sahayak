@@ -242,6 +242,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId ?? null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Ref mirror kept in sync with state so async work (e.g. auto-compact
+  // inside handleSend) can read the FRESH message list after a compact
+  // rewrites it, rather than the closure's stale value.
+  const messagesRef = useRef<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [ctx, setCtx] = useState({ prompt: 0, completion: 0 });
   const [toolOverride, setToolOverride] = useState<string[] | null>(null);
@@ -386,6 +390,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     });
   }, [messages.length, streaming]);
 
+  // Keep the ref mirror in sync with state. Any async work that needs
+  // post-compact messages reads through messagesRef.current.
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   // Debounced cross-session search. < 2 chars = no request, clear hits.
   // Scope + assistant change without waiting for debounce since those
   // imply the user already committed.
@@ -499,6 +509,22 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     if (!assistant) return;
     lastArtifactsEnabledRef.current = artifactsEnabled;
 
+    // Auto-compact gate. If the most recent prompt-token count is close
+    // to the model's context window, summarise older messages BEFORE
+    // sending. 70% trigger leaves ~30% headroom for the new user
+    // message + the assistant's response; without this, a single large
+    // send can push us past the window and Ollama either truncates
+    // silently or rejects. compact() bails early on <6 messages so new
+    // sessions are unaffected.
+    const AUTO_COMPACT_AT = 0.7;
+    if (
+      ctxMax &&
+      ctx.prompt / ctxMax >= AUTO_COMPACT_AT &&
+      messagesRef.current.length >= 6
+    ) {
+      await compact();
+    }
+
     const userMsg: ChatMessage = {
       id: uid(),
       role: "user",
@@ -506,7 +532,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       attachments: attachments.length ? attachments : undefined,
       createdAt: Date.now(),
     };
-    const nextMessages = [...messages, userMsg];
+    // messagesRef (not `messages` closure) so a just-run auto-compact's
+    // new list is used, not the stale pre-compact snapshot.
+    const nextMessages = [...messagesRef.current, userMsg];
     setMessages(nextMessages);
     setStreaming(true);
     streamingRef.current = true;
