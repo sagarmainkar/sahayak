@@ -1220,7 +1220,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }
 
   return (
-    <div className="flex h-screen bg-bg text-fg">
+    <div className="flex h-[100dvh] bg-bg text-fg">
       {/* Mobile backdrop that dismisses the drawer. `md:hidden` so the
           desktop side-by-side layout never sees it. */}
       {showSidebar && (
@@ -1496,7 +1496,16 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           blocks, news carousels, long URLs) force this column past
           the screen and spawn a horizontal scrollbar on mobile. */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-bg-elev px-3 py-2 md:flex-nowrap md:gap-x-3 md:px-4">
+        <header
+          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-bg-elev px-3 py-2 md:flex-nowrap md:gap-x-3 md:px-4"
+          style={{
+            // Notched phones + mobile browsers where the URL bar
+            // slides over the page top. env() is a viewport-aware
+            // inset; 0 on desktop/non-notched browsers so layout
+            // doesn't shift there.
+            paddingTop: "max(0.5rem, env(safe-area-inset-top))",
+          }}
+        >
           <button
             onClick={() => setShowSidebar((v) => !v)}
             className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg"

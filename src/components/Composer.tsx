@@ -279,11 +279,24 @@ export function Composer({
       typeof navigator === "undefined" ||
       !navigator.mediaDevices?.getUserMedia
     ) {
-      const reason =
-        typeof window !== "undefined" && window.isSecureContext === false
+      // Two common failure modes on mobile:
+      //  - Serving over http:// (mediaDevices is gated to secure
+      //    context); reach for HTTPS or localhost.
+      //  - Browser genuinely doesn't support getUserMedia.
+      // Either way, the OS keyboard's native dictate button is a
+      // zero-friction workaround — tell the user to use that.
+      const touchDevice =
+        typeof window !== "undefined" &&
+        "ontouchstart" in window;
+      const insecure =
+        typeof window !== "undefined" && window.isSecureContext === false;
+      const reason = touchDevice
+        ? "Tip: tap the mic on your keyboard to dictate. (Our in-app mic needs HTTPS.)"
+        : insecure
           ? "Voice input needs HTTPS (or localhost). Open Sahayak over https://…"
           : "Voice input isn't supported in this browser.";
       flashNote(reason, 6000);
+      textareaRef.current?.focus();
       return;
     }
     try {
@@ -589,9 +602,39 @@ export function Composer({
               </div>
             );
           })()}
-        <div className="flex items-end gap-2 rounded-lg border border-border bg-bg px-3 py-2 focus-within:border-accent">
+        <div className="rounded-lg border border-border bg-bg focus-within:border-accent">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                submit();
+              }
+              if (e.key === "Escape" && streaming) onAbort();
+            }}
+            onPaste={(e) => {
+              const imgs = Array.from(e.clipboardData.items)
+                .filter((i) => i.type.startsWith("image/"))
+                .map((i) => i.getAsFile())
+                .filter((f): f is File => !!f);
+              if (imgs.length) {
+                e.preventDefault();
+                addFiles(imgs);
+              }
+            }}
+            placeholder={`Write to ${assistantName}…`}
+            rows={2}
+            className="block w-full resize-none border-0 bg-transparent px-3 py-2.5 font-serif text-[15px] leading-relaxed text-fg placeholder:italic placeholder:text-fg-subtle focus:outline-none"
+          />
+          {/* Toolbar row lives BELOW the textarea: buttons on the left
+              (horizontal-scrollable if they overflow a narrow viewport),
+              send on the right. Gives the typing area full width. */}
+          <div className="flex items-center gap-1 border-t border-border/60 px-2 py-1.5">
+          <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <label
-            className="tt tt-above flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
+            className="tt tt-above flex flex-shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
             data-tip="Attach image"
           >
             <Paperclip className="h-3.5 w-3.5" />
@@ -758,35 +801,11 @@ export function Composer({
               <VolumeX className="h-3.5 w-3.5" />
             )}
           </button>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                submit();
-              }
-              if (e.key === "Escape" && streaming) onAbort();
-            }}
-            onPaste={(e) => {
-              const imgs = Array.from(e.clipboardData.items)
-                .filter((i) => i.type.startsWith("image/"))
-                .map((i) => i.getAsFile())
-                .filter((f): f is File => !!f);
-              if (imgs.length) {
-                e.preventDefault();
-                addFiles(imgs);
-              }
-            }}
-            placeholder={`Write to ${assistantName}…`}
-            rows={2}
-            className="flex-1 resize-none border-0 bg-transparent font-serif text-[15px] leading-relaxed text-fg placeholder:italic placeholder:text-fg-subtle focus:outline-none"
-          />
+          </div>
           {streaming ? (
             <button
               onClick={onAbort}
-              className="flex items-center gap-1 rounded border border-border px-2.5 py-1 font-sans text-[11px] text-fg-muted hover:text-red-500"
+              className="flex flex-shrink-0 items-center gap-1 rounded border border-border px-2.5 py-1 font-sans text-[11px] text-fg-muted hover:text-red-500"
             >
               <X className="h-3 w-3" />
               Stop
@@ -797,12 +816,13 @@ export function Composer({
               disabled={
                 (!input.trim() && attachments.length === 0) || uploading > 0
               }
-              className="flex items-center gap-1 rounded bg-accent px-3 py-1.5 font-sans text-[11.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
+              className="flex flex-shrink-0 items-center gap-1 rounded bg-accent px-3 py-1.5 font-sans text-[11.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
             >
               <Send className="h-3.5 w-3.5" />
               Send
             </button>
           )}
+          </div>
         </div>
         <div className="mt-1 flex items-center justify-between gap-3 px-1 font-sans text-[10.5px] text-fg-subtle">
           <span>⌘/Ctrl ↵ to send · drag or paste images · ⎋ to stop</span>
