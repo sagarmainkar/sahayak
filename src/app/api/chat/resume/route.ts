@@ -22,7 +22,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   }
 
-  const usePi = process.env.SAHAYAK_LLM_BACKEND === "pi";
+  // pi-mono is the default; set SAHAYAK_LLM_BACKEND=native to fall back.
+  const usePi = process.env.SAHAYAK_LLM_BACKEND !== "native";
 
   if (usePi) {
     // pi-mono resume: Agent is still running in-memory; we just rebind our

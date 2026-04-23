@@ -51,7 +51,10 @@ export async function POST(req: Request) {
     ? `${memBlock}\n\n---\n\n${body.system ?? ""}`.trim()
     : body.system;
 
-  const usePi = process.env.SAHAYAK_LLM_BACKEND === "pi";
+  // pi-mono is the default backend. Set SAHAYAK_LLM_BACKEND=native
+  // only as an escape hatch to fall back to the original Ollama loop
+  // (kept around for a while longer so we can still compare).
+  const usePi = process.env.SAHAYAK_LLM_BACKEND !== "native";
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
