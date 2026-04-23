@@ -217,15 +217,17 @@ export function MemoryPage() {
               {hits?.map((h) => (
                 <li
                   key={h.entry.id}
-                  className="flex items-start gap-3 rounded border border-border bg-bg px-3 py-2"
+                  className="flex items-start gap-2 rounded border border-border bg-bg px-3 py-2 sm:gap-3"
                 >
-                  <span className="mt-0.5 rounded bg-bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+                  <span className="mt-0.5 flex-shrink-0 rounded bg-bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
                     {h.entry.type}
                   </span>
-                  <span className="flex-1 font-serif text-[13.5px]">
+                  {/* min-w-0 + break-words: lets flex-1 actually shrink
+                      to viewport width and wraps long tokens inside. */}
+                  <span className="min-w-0 flex-1 break-words font-serif text-[13.5px]">
                     {h.entry.content}
                   </span>
-                  <span className="font-mono text-[10.5px] tabular-nums text-fg-subtle">
+                  <span className="flex-shrink-0 font-mono text-[10.5px] tabular-nums text-fg-subtle">
                     {h.score.toFixed(2)}
                   </span>
                 </li>
@@ -266,14 +268,18 @@ export function MemoryPage() {
                   {items.map((m) => (
                     <li
                       key={m.id}
-                      className="group flex items-start gap-3 rounded border border-border bg-bg-paper px-3 py-2"
+                      className="group flex items-start gap-2 rounded border border-border bg-bg-paper px-3 py-2 sm:gap-3"
                     >
-                      <span className="flex-1 font-serif text-[13.5px] leading-[1.5] text-fg">
+                      {/* min-w-0 so flex-1 can actually shrink to
+                          viewport width; break-words so a long URL or
+                          hash in the content wraps onto the next line
+                          instead of pushing the container wider. */}
+                      <span className="min-w-0 flex-1 break-words font-serif text-[13.5px] leading-[1.5] text-fg">
                         {m.content}
                       </span>
                       <span
                         className={cn(
-                          "rounded px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider",
+                          "flex-shrink-0 rounded px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider",
                           m.source === "model"
                             ? "bg-accent/10 text-accent"
                             : "bg-bg-muted text-fg-subtle",
@@ -281,13 +287,17 @@ export function MemoryPage() {
                       >
                         {m.source}
                       </span>
-                      <span className="font-mono text-[10.5px] tabular-nums text-fg-subtle">
+                      {/* Relative time is a desktop nicety — hide on
+                          mobile so content isn't competing with
+                          metadata for the narrow row. */}
+                      <span className="hidden flex-shrink-0 font-mono text-[10.5px] tabular-nums text-fg-subtle sm:inline">
                         {fmtRelative(m.updatedAt)}
                       </span>
                       <button
                         onClick={() => remove(m.id)}
-                        className="tt rounded p-1 text-fg-subtle opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                        className="tt flex-shrink-0 rounded p-1 text-fg-subtle transition-opacity hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
                         data-tip="Delete"
+                        aria-label="Delete memory"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
