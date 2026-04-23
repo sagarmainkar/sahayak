@@ -122,15 +122,15 @@ export function MemoryPage() {
   }, [grouped]);
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-6 flex items-end justify-between gap-4">
-        <div>
+    <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
             <Brain className="h-4 w-4 text-accent" />
             <span className="byline">memory</span>
           </div>
           <h1
-            className="font-display text-[40px] italic leading-none text-fg"
+            className="font-display text-[30px] italic leading-[1.05] text-fg sm:text-[40px] sm:leading-none"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 50' }}
           >
             What I know
@@ -145,7 +145,7 @@ export function MemoryPage() {
         <button
           onClick={rebuild}
           disabled={rebuilding}
-          className="tt flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50"
+          className="tt flex w-max items-center gap-1.5 self-start rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50 sm:self-auto"
           data-tip="Recompute all embeddings"
         >
           <RefreshCw

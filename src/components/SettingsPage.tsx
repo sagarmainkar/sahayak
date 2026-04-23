@@ -174,15 +174,15 @@ export function SettingsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-8">
-      <div className="mb-6 flex items-end justify-between gap-4">
-        <div>
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+        <div className="min-w-0">
           <div className="mb-1 flex items-center gap-2">
             <SettingsIcon className="h-4 w-4 text-accent" />
             <span className="byline">settings</span>
           </div>
           <h1
-            className="font-display text-[40px] italic leading-none text-fg"
+            className="font-display text-[30px] italic leading-[1.05] text-fg sm:text-[40px] sm:leading-none"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 50' }}
           >
             Preferences
@@ -576,7 +576,7 @@ function McpServersSection() {
 
       {showAdd && (
         <div className="mb-3 flex flex-col gap-2 rounded border border-border bg-bg-paper p-3">
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <label className="flex-1">
               <div className="byline mb-1">name</div>
               <input
@@ -586,7 +586,7 @@ function McpServersSection() {
                 className="w-full rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
               />
             </label>
-            <label className="w-32">
+            <label className="sm:w-32">
               <div className="byline mb-1">command</div>
               <input
                 value={newCommand}

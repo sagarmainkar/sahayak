@@ -30,12 +30,12 @@ export default function Home() {
     <div className="flex min-h-screen flex-col">
       <Header />
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-12">
-        <div className="mb-8 flex items-end justify-between">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6 sm:py-12">
+        <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
           <div>
             <div className="byline">your assistants</div>
             <h1
-              className="mt-1 font-display text-[42px] italic leading-none text-fg"
+              className="mt-1 font-display text-[30px] italic leading-[1.05] text-fg sm:text-[42px] sm:leading-none"
               style={{ fontVariationSettings: '"opsz" 144, "SOFT" 60' }}
             >
               Who shall we talk to?
@@ -43,7 +43,7 @@ export default function Home() {
           </div>
           <Link
             href="/assistants/new"
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3.5 py-2 font-sans text-[12px] font-medium text-accent-fg hover:opacity-90"
+            className="inline-flex w-max items-center gap-1.5 self-start rounded-md bg-accent px-3.5 py-2 font-sans text-[12px] font-medium text-accent-fg hover:opacity-90 sm:self-auto"
           >
             <Plus className="h-3.5 w-3.5" />
             New assistant

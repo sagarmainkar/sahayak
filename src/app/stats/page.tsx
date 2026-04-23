@@ -18,11 +18,11 @@ export default function StatsPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
-        <div className="mb-8">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 sm:py-10">
+        <div className="mb-6 sm:mb-8">
           <div className="byline">analytics</div>
           <h1
-            className="mt-1 font-display text-[42px] italic leading-none text-fg"
+            className="mt-1 font-display text-[30px] italic leading-[1.05] text-fg sm:text-[42px] sm:leading-none"
             style={{ fontVariationSettings: '"opsz" 144, "SOFT" 60' }}
           >
             What&apos;s been said
@@ -211,8 +211,8 @@ function AssistantsSection({ stats }: { stats: GlobalStats }) {
       >
         Assistants
       </h2>
-      <div className="overflow-hidden rounded-lg border border-border bg-bg-elev">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border border-border bg-bg-elev">
+        <table className="w-full min-w-[640px] text-sm">
           <thead>
             <tr className="border-b border-border bg-bg-muted/30 font-sans text-[10px] uppercase tracking-[0.12em] text-fg-subtle">
               <th className="p-3 text-left">name</th>
