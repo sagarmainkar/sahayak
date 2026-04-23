@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Paperclip,
   Send,
@@ -218,17 +219,54 @@ export function Composer({
   // Per-turn: cleared after send. Null = no template active.
   const [activeTemplate, setActiveTemplate] = useState<string | null>(null);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
-  const templatePickerRef = useRef<HTMLDivElement | null>(null);
-  // Click-outside to close the picker popover.
+  const templateBtnRef = useRef<HTMLButtonElement | null>(null);
+  const templateMenuRef = useRef<HTMLDivElement | null>(null);
+  // Fixed-position coords for the portal'd menu. Anchored above the
+  // button — the composer lives at the bottom of the viewport so the
+  // menu opens upward. Capturing via getBoundingClientRect sidesteps
+  // the overflow-clip on the toolbar's scroll track (CSS auto
+  // overflow on one axis implicitly computes auto on the other).
+  const [templateCoords, setTemplateCoords] = useState<{
+    bottom: number;
+    left: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!showTemplatePicker) return;
+    function place() {
+      const el = templateBtnRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      // 20rem menu but clamped to viewport below via max-width; the
+      // left edge is clamped so the menu never escapes the screen on
+      // either side.
+      const menuWidth = Math.min(320, window.innerWidth - 24);
+      const left = Math.max(
+        12,
+        Math.min(r.left, window.innerWidth - menuWidth - 12),
+      );
+      setTemplateCoords({
+        bottom: window.innerHeight - r.top + 6,
+        left,
+      });
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [showTemplatePicker]);
+  // Click-outside closer. Needs to ignore clicks on either the button
+  // OR the portal'd menu, since they're no longer ancestor/descendant
+  // of each other.
   useEffect(() => {
     if (!showTemplatePicker) return;
     const onDown = (e: MouseEvent) => {
-      if (
-        templatePickerRef.current &&
-        !templatePickerRef.current.contains(e.target as Node)
-      ) {
-        setShowTemplatePicker(false);
-      }
+      const t = e.target as Node;
+      if (templateBtnRef.current?.contains(t)) return;
+      if (templateMenuRef.current?.contains(t)) return;
+      setShowTemplatePicker(false);
     };
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
@@ -683,28 +721,40 @@ export function Composer({
           >
             <Sparkles className="h-3.5 w-3.5" />
           </button>
-          <div className="relative" ref={templatePickerRef}>
-            <button
-              type="button"
-              onClick={() => setShowTemplatePicker((v) => !v)}
-              className={cn(
-                "tt tt-above flex items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
-                activeTemplate
-                  ? "text-accent"
-                  : "text-fg-subtle hover:text-fg",
-              )}
-              data-tip={
-                activeTemplate
-                  ? "Template active — response will render structured"
-                  : "Use a response template"
-              }
-              aria-pressed={!!activeTemplate}
-              aria-expanded={showTemplatePicker}
-            >
-              <LayoutTemplate className="h-3.5 w-3.5" />
-            </button>
-            {showTemplatePicker && (
-              <div className="absolute bottom-full left-0 z-20 mb-2 w-[320px] rounded-lg border border-border bg-bg-elev p-1.5 shadow-lg">
+          <button
+            type="button"
+            ref={templateBtnRef}
+            onClick={() => setShowTemplatePicker((v) => !v)}
+            className={cn(
+              "tt tt-above flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
+              activeTemplate
+                ? "text-accent"
+                : "text-fg-subtle hover:text-fg",
+            )}
+            data-tip={
+              activeTemplate
+                ? "Template active — response will render structured"
+                : "Use a response template"
+            }
+            aria-pressed={!!activeTemplate}
+            aria-expanded={showTemplatePicker}
+          >
+            <LayoutTemplate className="h-3.5 w-3.5" />
+          </button>
+          {showTemplatePicker &&
+            templateCoords &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                ref={templateMenuRef}
+                style={{
+                  position: "fixed",
+                  bottom: templateCoords.bottom,
+                  left: templateCoords.left,
+                  width: "min(20rem, calc(100vw - 1.5rem))",
+                }}
+                className="z-50 rounded-lg border border-border bg-bg-elev p-1.5 shadow-lg"
+              >
                 <div className="byline px-2 pb-1.5 pt-1">
                   response templates
                 </div>
@@ -751,9 +801,9 @@ export function Composer({
                 <div className="mt-1 border-t border-border px-2 py-1.5 font-serif text-[11px] italic text-fg-subtle">
                   applies to the next message only
                 </div>
-              </div>
+              </div>,
+              document.body,
             )}
-          </div>
           <button
             type="button"
             onClick={recording ? stopRecording : startRecording}
