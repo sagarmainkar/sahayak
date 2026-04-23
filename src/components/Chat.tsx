@@ -873,6 +873,17 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         body: initialPayload,
       };
 
+      // Accumulates approvals ACROSS iterations of the approval loop
+      // below. We can't re-read sessionApprovedTools each iteration
+      // because handleSend captured it as a closure value on entry;
+      // setSessionApprovedTools updates React state but not this
+      // closure. Without cumulativeApproved, a turn with several
+      // parallel tool gates would send only the LATEST tool in each
+      // resume's autoApproveTools list — dropping previously-approved
+      // tools and re-prompting the user for the same tool later in the
+      // same run.
+      let cumulativeApproved = new Set(sessionApprovedTools);
+
       // Outer loop drives fresh + resumed streams. Exits when a stream
       // ends without a pause event, or when the user cancels the pause.
       while (true) {
@@ -902,23 +913,25 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           break;
         }
 
-        // Update the session-approved allowlist BEFORE the resume POST
-        // so the server can skip approval for subsequent same-named calls
-        // in this loop run.
-        let approvedNext = sessionApprovedTools;
+        // Update the accumulating allowlist BEFORE the resume POST so
+        // subsequent gated calls in this run skip approval. React state
+        // also mirrors it for the NEXT user-initiated turn.
         if (decision.persist === "tool") {
-          approvedNext = new Set([...sessionApprovedTools, pause.toolName]);
-          setSessionApprovedTools(approvedNext);
+          cumulativeApproved = new Set([
+            ...cumulativeApproved,
+            pause.toolName,
+          ]);
+          setSessionApprovedTools(cumulativeApproved);
         } else if (decision.persist === "all") {
-          approvedNext = new Set(allTools.map((t) => t.name));
-          setSessionApprovedTools(approvedNext);
+          cumulativeApproved = new Set(allTools.map((t) => t.name));
+          setSessionApprovedTools(cumulativeApproved);
         }
         nextFetch = {
           url: "/api/chat/resume",
           body: {
             token: pause.token,
             decision: decision.decision,
-            autoApproveTools: [...approvedNext],
+            autoApproveTools: [...cumulativeApproved],
           },
         };
       }
