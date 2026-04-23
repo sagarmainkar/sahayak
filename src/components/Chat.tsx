@@ -179,7 +179,11 @@ const Turn = memo(function Turn({
 
       <div className="assistant-edge">
         {m.timeline && m.timeline.phases.length > 0 && (
-          <TurnTimeline timeline={m.timeline} live={streaming} />
+          <TurnTimeline
+            timeline={m.timeline}
+            live={streaming}
+            completionTokens={m.completionTokens}
+          />
         )}
         {m.thinking && (
           <Thinking text={m.thinking} streaming={streaming && !m.content} />
@@ -734,6 +738,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               completion: Number(obj.completionTokens ?? 0),
             };
             setCtx(lastTokens);
+            // Stash this turn's output tokens on the assistant message
+            // so the Turn timeline can render tokens/sec after the
+            // stream ends.
+            patchCur({ completionTokens: lastTokens.completion });
           } else if (t === "assistant_message") {
             const cur = assembled[curIndex];
             patchCur({

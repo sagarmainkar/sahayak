@@ -73,12 +73,29 @@ function itemDurationText(item: DisplayItem, now: number): string {
   return fmtDuration(end - item.startedAt);
 }
 
+/** Sum durations of non-tool phases only — that's actual model
+ *  generation time (thinking + writing). Tool waits aren't part of
+ *  tokens/sec. */
+function generationMs(timeline: TTimeline): number {
+  let total = 0;
+  for (const p of timeline.phases) {
+    if (p.kind === "tool") continue;
+    if (p.endedAt === undefined) continue;
+    total += p.endedAt - p.startedAt;
+  }
+  return total;
+}
+
 export function TurnTimeline({
   timeline,
   live,
+  completionTokens,
 }: {
   timeline: TTimeline;
   live: boolean;
+  /** Total output tokens for this turn, if known. Used to render a
+   *  tokens-per-second metric once the turn finishes. */
+  completionTokens?: number;
 }) {
   // Re-render every 500ms while the turn is live so open-phase timers
   // tick. `tick` is a wall-clock snapshot captured inside the interval so
@@ -146,6 +163,24 @@ export function TurnTimeline({
           </span>
         );
       })}
+      {(() => {
+        if (live) return null;
+        if (!completionTokens) return null;
+        const ms = generationMs(timeline);
+        if (ms < 50) return null;
+        const tps = completionTokens / (ms / 1000);
+        return (
+          <span
+            className="ml-auto inline-flex items-center gap-1 rounded-sm border border-border/60 bg-bg-paper/60 px-1.5 py-[1px] text-[10px] text-fg-subtle"
+            title={`${completionTokens} output tokens in ${(ms / 1000).toFixed(1)}s`}
+          >
+            <span className="tabular-nums text-fg-muted">
+              {tps >= 100 ? tps.toFixed(0) : tps.toFixed(1)}
+            </span>
+            <span className="text-fg-subtle/70">tok/s</span>
+          </span>
+        );
+      })()}
     </div>
   );
 }

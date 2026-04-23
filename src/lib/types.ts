@@ -80,6 +80,10 @@ export type ChatMessage = {
   /** Phase timeline for a single assistant turn. Only on assistant
    *  messages. Persists across reloads. */
   timeline?: TurnTimeline;
+  /** Output tokens for this turn (from Ollama's `eval_count`). Combined
+   *  with the turn timeline's non-tool phases this gives a meaningful
+   *  tokens/sec metric. Only on assistant messages. */
+  completionTokens?: number;
   attachments?: MsgAttachment[];
   createdAt: number;
 };
