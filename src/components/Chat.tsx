@@ -253,7 +253,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const [ctx, setCtx] = useState({ prompt: 0, completion: 0 });
   const [toolOverride, setToolOverride] = useState<string[] | null>(null);
   const [showTools, setShowTools] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
+  // Default to open on desktop, closed on mobile — the ~240px sidebar
+  // would otherwise eat most of a phone's screen on mount.
+  const [showSidebar, setShowSidebar] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.innerWidth >= 768;
+  });
   const [isDragging, setIsDragging] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1216,9 +1221,18 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
   return (
     <div className="flex h-screen bg-bg text-fg">
-      {/* sessions sidebar */}
+      {/* Mobile backdrop that dismisses the drawer. `md:hidden` so the
+          desktop side-by-side layout never sees it. */}
       {showSidebar && (
-        <aside className="flex w-60 flex-col border-r border-border bg-bg-elev">
+        <div
+          className="fixed inset-0 z-20 bg-black/40 md:hidden"
+          onClick={() => setShowSidebar(false)}
+          aria-hidden
+        />
+      )}
+      {/* sessions sidebar — drawer on mobile (<md), static column on ≥md */}
+      {showSidebar && (
+        <aside className="fixed inset-y-0 left-0 z-30 flex w-[85vw] max-w-[320px] flex-col border-r border-border bg-bg-elev shadow-xl md:static md:z-auto md:w-60 md:max-w-none md:shadow-none">
           <div className="flex items-center gap-2 border-b border-border px-3 py-2">
             <Link
               href="/"
@@ -1342,6 +1356,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                       `/chat/${assistantId}/${h.sessionId}`,
                     );
                     setSearchQuery("");
+                    if (window.innerWidth < 768) setShowSidebar(false);
                   };
                   const firstMatch = h.matches[0];
                   return (
@@ -1408,6 +1423,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                     window.history.replaceState(
                       null, "", `/chat/${assistantId}/${s.id}`,
                     );
+                    // Close the drawer after a pick on mobile so the
+                    // chat becomes visible; harmless on desktop.
+                    if (window.innerWidth < 768) setShowSidebar(false);
                   }}
                   className={cn(
                     "flex-1 truncate text-left",
@@ -1690,7 +1708,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               onAttachScreenshot={(a) => setPendingComposerAttachment(a)}
             />
           ) : showTools && (
-            <aside className="w-72 overflow-y-auto border-l border-border bg-bg-elev p-3">
+            <aside className="fixed inset-y-0 right-0 z-30 w-[85vw] max-w-[320px] overflow-y-auto border-l border-border bg-bg-elev p-3 shadow-xl md:static md:z-auto md:w-72 md:max-w-none md:shadow-none">
               <div className="byline mb-2">tools</div>
               {Object.entries(
                 allTools.reduce<Record<string, ToolPublic[]>>((acc, t) => {

@@ -271,6 +271,21 @@ export function Composer({
 
   async function startRecording() {
     if (recording || transcribing) return;
+    // navigator.mediaDevices is only exposed in a secure context —
+    // HTTPS or localhost. Opening the dev server over plain HTTP (e.g.
+    // from a phone on the LAN) leaves it undefined. Surface a helpful
+    // message instead of a cryptic property-read error.
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      const reason =
+        typeof window !== "undefined" && window.isSecureContext === false
+          ? "Voice input needs HTTPS (or localhost). Open Sahayak over https://…"
+          : "Voice input isn't supported in this browser.";
+      flashNote(reason, 6000);
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       // Pick a mime type the browser supports; fall back to default.

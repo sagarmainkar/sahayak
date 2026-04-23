@@ -260,7 +260,10 @@ export function ArtifactPanel({
         "flex flex-col border-l border-border bg-bg-elev",
         fullscreen
           ? "fixed inset-0 z-40 border-0"
-          : "w-[min(640px,50vw)]",
+          : // Mobile: full-screen overlay. Desktop (≥md): side column
+            // 50vw-wide, capped at 640px. Fullscreen branch above takes
+            // precedence on either size.
+            "fixed inset-0 z-40 md:static md:z-auto md:w-[min(640px,50vw)]",
       )}
     >
       {/* header */}
