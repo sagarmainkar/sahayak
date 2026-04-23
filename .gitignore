@@ -55,3 +55,19 @@ next-env.d.ts
 /artifact-*.html
 /artifact-*.jsx
 /artifact-*.tsx
+
+# Scratch files a model may drop at repo root while assisting. Anything
+# that genuinely belongs in the repo lives under src/, public/, or a
+# versioned directory — so root-level wildcards are safe to blacklist.
+/*.html
+/*.svg
+/*.png
+/*.jpg
+/*.jpeg
+/*.md
+!/README.md
+
+# Local Python venv for the document extractors. Pure-Node fallback
+# handles most cases; the venv is only needed for password-protected
+# PDFs + richer Office file handling.
+/.venv
