@@ -5,12 +5,14 @@ import { ChevronRight, ChevronDown } from "lucide-react";
 
 export function Thinking({
   text,
-  streaming = false,
 }: {
   text: string;
+  /** Deprecated — kept so existing callers that still pass it don't
+   *  break type-check. Thinking is always collapsed by default now;
+   *  click to expand. */
   streaming?: boolean;
 }) {
-  const [open, setOpen] = useState(streaming);
+  const [open, setOpen] = useState(false);
   if (!text) return null;
   const words = text.trim().split(/\s+/).length;
   return (
