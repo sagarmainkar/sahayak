@@ -137,6 +137,7 @@ export function Markdown({
   sessionId,
   assistantId,
   streaming = false,
+  onArtifactAutoFix,
 }: {
   text: string;
   sessionId?: string | null;
@@ -144,6 +145,10 @@ export function Markdown({
   /** True while the parent turn is still streaming. Used to suppress
    *  parse-error UI in template fences whose JSON isn't closed yet. */
   streaming?: boolean;
+  /** Forwarded to ArtifactBlock: fires when the server rejects an
+   *  artifact's JSX as invalid, so Chat can kick off a silent fix
+   *  turn. */
+  onArtifactAutoFix?: (error: string) => void;
 }) {
   const processed = fenceAsciiBoxes(text);
   return (
@@ -194,6 +199,7 @@ export function Markdown({
                   source={src}
                   sessionId={sessionId}
                   assistantId={assistantId}
+                  onAutoFix={onArtifactAutoFix}
                 />
               );
             }
@@ -214,6 +220,7 @@ export function Markdown({
                   source={src}
                   sessionId={sessionId}
                   assistantId={assistantId}
+                  onAutoFix={onArtifactAutoFix}
                 />
               );
             }

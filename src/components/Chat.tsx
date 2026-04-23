@@ -60,6 +60,7 @@ const Turn = memo(function Turn({
   onSpeakStop,
   isSpeaking,
   isSpeakLoading,
+  onArtifactAutoFix,
 }: {
   m: ChatMessage;
   streaming?: boolean;
@@ -70,6 +71,7 @@ const Turn = memo(function Turn({
   onSpeakStop?: () => void;
   isSpeaking?: boolean;
   isSpeakLoading?: boolean;
+  onArtifactAutoFix?: (error: string) => void;
 }) {
   if (m.role === "tool") {
     return (
@@ -196,6 +198,7 @@ const Turn = memo(function Turn({
               sessionId={sessionId}
               assistantId={assistant.id}
               streaming={streaming}
+              onArtifactAutoFix={onArtifactAutoFix}
             />
             {onSpeak && !streaming && (
               <button
@@ -998,6 +1001,29 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     abortRef.current?.abort();
   }, []);
 
+  // Dedup guard: a streaming assistant message can re-render many times
+  // while content accumulates. ArtifactBlock fires onAutoFix per mount
+  // with the same error — without this, we'd queue multiple fix turns
+  // for the same broken artifact.
+  const autoFixFiredRef = useRef<Set<string>>(new Set());
+  const handleArtifactAutoFix = useCallback(
+    (error: string) => {
+      if (streamingRef.current) return;
+      if (autoFixFiredRef.current.has(error)) return;
+      autoFixFiredRef.current.add(error);
+      // Keep the artifact toggle on so the fix turn regenerates a
+      // fence instead of describing the fix in prose.
+      lastArtifactsEnabledRef.current = true;
+      const prompt = `The react-artifact you emitted didn't compile:\n\n${error}\n\nPlease re-emit a corrected \`\`\`react-artifact\`\`\` fence. Keep the same behaviour and title; fix only the syntax.`;
+      handleSend(prompt, [], true);
+    },
+    // handleSend is intentionally not in deps — it's recreated every
+    // render and pulling in its dep chain would make this callback
+    // churn every frame, defeating the memo guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   async function redoLastUser() {
     if (streaming) return;
     // find last user message
@@ -1632,6 +1658,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                       isSpeakLoading={
                         activeSpeakId === m.id && speaker.loading
                       }
+                      onArtifactAutoFix={handleArtifactAutoFix}
                     />
                   </div>
                   );
