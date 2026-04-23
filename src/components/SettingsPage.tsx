@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Settings as SettingsIcon,
-  Play,
-  Loader2,
   Check,
   Trash2,
   Pin,
@@ -12,7 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { fmtRelative } from "@/lib/fmt";
-import type { Settings, TtsBackend } from "@/lib/settings";
+import type { Settings } from "@/lib/settings";
 
 type CleanupCandidate = {
   kind: "session" | "artifact";
@@ -35,19 +33,8 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-type PollyVoice = {
-  Id: string;
-  Name: string;
-  Gender: "Male" | "Female";
-  LanguageCode: string;
-  LanguageName: string;
-};
-
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [voices, setVoices] = useState<PollyVoice[] | null>(null);
-  const [voicesError, setVoicesError] = useState<string | null>(null);
-  const [previewing, setPreviewing] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [cleanup, setCleanup] = useState<CleanupReport | null>(null);
   const [cleanupLoading, setCleanupLoading] = useState(false);
@@ -92,20 +79,6 @@ export function SettingsPage() {
     loadCleanup();
   }, []);
 
-  useEffect(() => {
-    if (settings?.tts.backend !== "polly" || voices !== null) return;
-    fetch("/api/tts/polly/voices")
-      .then(async (r) => {
-        if (!r.ok) {
-          setVoicesError((await r.json()).error ?? `status ${r.status}`);
-          return;
-        }
-        const d = (await r.json()) as { voices: PollyVoice[] };
-        setVoices(d.voices);
-      })
-      .catch((e) => setVoicesError((e as Error).message));
-  }, [settings?.tts.backend, voices]);
-
   async function patchSettings(patch: Partial<Settings>) {
     const r = await fetch("/api/settings", {
       method: "PATCH",
@@ -117,53 +90,6 @@ export function SettingsPage() {
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   }
-
-  async function preview(voice: string) {
-    setPreviewing(voice);
-    try {
-      const r = await fetch("/api/tts/polly", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: "Hello from Sahayak. This is a voice preview.",
-          voice,
-        }),
-      });
-      if (!r.ok) return;
-      const blob = await r.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.addEventListener("ended", () => {
-        URL.revokeObjectURL(url);
-        setPreviewing(null);
-      });
-      audio.addEventListener("error", () => {
-        URL.revokeObjectURL(url);
-        setPreviewing(null);
-      });
-      audio.play();
-    } catch {
-      setPreviewing(null);
-    }
-  }
-
-  const byLanguage = useMemo(() => {
-    if (!voices) return [];
-    const map = new Map<string, { langName: string; voices: PollyVoice[] }>();
-    for (const v of voices) {
-      const entry = map.get(v.LanguageCode) ?? {
-        langName: v.LanguageName,
-        voices: [],
-      };
-      entry.voices.push(v);
-      map.set(v.LanguageCode, entry);
-    }
-    return [...map.entries()].map(([code, val]) => ({
-      code,
-      langName: val.langName,
-      voices: val.voices,
-    }));
-  }, [voices]);
 
   if (!settings) {
     return (
@@ -196,109 +122,10 @@ export function SettingsPage() {
         )}
       </div>
 
-      <section className="rounded-lg border border-border bg-bg-elev p-5">
-        <h2 className="byline mb-4">Text to speech</h2>
-
-        <div className="mb-4">
-          <label className="mb-2 block font-sans text-[11px] uppercase tracking-[0.1em] text-fg-subtle">
-            Backend
-          </label>
-          <div className="flex gap-2">
-            <BackendButton
-              active={settings.tts.backend === "soprano"}
-              onClick={() =>
-                patchSettings({
-                  tts: { backend: "soprano", pollyVoice: settings.tts.pollyVoice },
-                })
-              }
-              label="Soprano"
-              sublabel="local · free · 32 kHz"
-            />
-            <BackendButton
-              active={settings.tts.backend === "polly"}
-              onClick={() =>
-                patchSettings({
-                  tts: { backend: "polly", pollyVoice: settings.tts.pollyVoice },
-                })
-              }
-              label="AWS Polly"
-              sublabel="neural · cloud · 24 kHz"
-            />
-          </div>
-        </div>
-
-        {settings.tts.backend === "polly" && (
-          <div>
-            <label className="mb-2 block font-sans text-[11px] uppercase tracking-[0.1em] text-fg-subtle">
-              Voice
-            </label>
-            {voicesError ? (
-              <div className="rounded border border-red-500/40 bg-red-500/5 p-3 font-mono text-[11.5px] text-red-500">
-                couldn&apos;t list voices — {voicesError}
-              </div>
-            ) : !voices ? (
-              <div className="font-serif italic text-fg-muted">
-                loading voices…
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {byLanguage.map((grp) => (
-                  <div key={grp.code}>
-                    <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.15em] text-fg-subtle">
-                      {grp.langName} · {grp.code}
-                    </div>
-                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                      {grp.voices.map((v) => {
-                        const selected = settings.tts.pollyVoice === v.Id;
-                        return (
-                          <div
-                            key={v.Id}
-                            className={cn(
-                              "flex items-center gap-2 rounded border p-2 text-[12.5px] transition",
-                              selected
-                                ? "border-accent bg-accent/10"
-                                : "border-border hover:bg-bg-muted",
-                            )}
-                          >
-                            <button
-                              onClick={() =>
-                                patchSettings({
-                                  tts: {
-                                    backend: "polly",
-                                    pollyVoice: v.Id,
-                                  },
-                                })
-                              }
-                              className="flex-1 text-left"
-                            >
-                              <div className="font-mono text-fg">{v.Name}</div>
-                              <div className="font-sans text-[10.5px] text-fg-subtle">
-                                {v.Gender}
-                              </div>
-                            </button>
-                            <button
-                              onClick={() => preview(v.Id)}
-                              disabled={previewing !== null}
-                              className="tt rounded p-1 text-fg-subtle hover:text-fg disabled:opacity-40"
-                              data-tip="Preview"
-                            >
-                              {previewing === v.Id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Play className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </section>
+      {/* Text-to-speech section removed for the open-source cut.
+          /api/tts routes + src/lib/useSpeaker.ts + TTS settings type
+          remain in the repo, so reverting this file is enough to
+          bring the UI back. See git history for the original JSX. */}
 
       <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
         <div className="mb-3 flex items-center justify-between">
@@ -866,32 +693,3 @@ function McpServersSection() {
   );
 }
 
-function BackendButton({
-  active,
-  onClick,
-  label,
-  sublabel,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  sublabel: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex-1 rounded border px-3 py-2.5 text-left transition",
-        active
-          ? "border-accent bg-accent/10"
-          : "border-border hover:bg-bg-muted",
-      )}
-    >
-      <div className="font-mono text-[13px] text-fg">{label}</div>
-      <div className="font-sans text-[10.5px] text-fg-subtle">{sublabel}</div>
-    </button>
-  );
-}
-
-// Avoid an unused-import warning in clients that don't use this type.
-export type { TtsBackend };

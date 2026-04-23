@@ -4,9 +4,8 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Plus, Pencil, Trash2, Archive, Wrench, PanelLeft, Download,
-  RotateCcw, Volume2, Square, Loader2, Pin, FileText, Search, X as XIcon,
+  RotateCcw, Loader2, Pin, FileText, Search, X as XIcon,
 } from "lucide-react";
-import { useSpeaker } from "@/lib/useSpeaker";
 import { Markdown } from "./Markdown";
 import { ThemeToggle } from "./ThemeToggle";
 import { StyleSwitcher } from "./StyleSwitcher";
@@ -56,10 +55,6 @@ const Turn = memo(function Turn({
   assistant,
   onRedo,
   sessionId,
-  onSpeak,
-  onSpeakStop,
-  isSpeaking,
-  isSpeakLoading,
   onArtifactAutoFix,
 }: {
   m: ChatMessage;
@@ -67,10 +62,6 @@ const Turn = memo(function Turn({
   assistant: Assistant;
   onRedo?: () => void;
   sessionId?: string | null;
-  onSpeak?: (text: string) => void;
-  onSpeakStop?: () => void;
-  isSpeaking?: boolean;
-  isSpeakLoading?: boolean;
   onArtifactAutoFix?: (error: string) => void;
 }) {
   if (m.role === "tool") {
@@ -200,33 +191,6 @@ const Turn = memo(function Turn({
               streaming={streaming}
               onArtifactAutoFix={onArtifactAutoFix}
             />
-            {onSpeak && !streaming && (
-              <button
-                onClick={() => {
-                  if (isSpeakLoading) return;
-                  if (isSpeaking && onSpeakStop) onSpeakStop();
-                  else onSpeak(m.content);
-                }}
-                disabled={isSpeakLoading}
-                className="tt mt-2 inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 font-sans text-[10.5px] text-fg-subtle hover:border-accent hover:text-fg disabled:opacity-60"
-                data-tip={
-                  isSpeakLoading ? "Preparing…" : isSpeaking ? "Stop" : "Speak"
-                }
-              >
-                {isSpeakLoading ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : isSpeaking ? (
-                  <Square className="h-3 w-3" />
-                ) : (
-                  <Volume2 className="h-3 w-3" />
-                )}
-                {isSpeakLoading
-                  ? "preparing…"
-                  : isSpeaking
-                    ? "stop"
-                    : "speak"}
-              </button>
-            )}
           </div>
         ) : streaming && !m.thinking ? (
           <div className="font-serif text-[14px] italic text-fg-subtle">
@@ -266,9 +230,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const localSessionRef = useRef<string | null>(null);
   // Mirrors the Composer's artifact toggle so regen reuses the same mode.
   const lastArtifactsEnabledRef = useRef(false);
-  const [autoSpeak, setAutoSpeak] = useState(false);
-  const autoSpeakRef = useRef(false);
-  const speaker = useSpeaker();
   // Tool-approval state — gates risky tool calls per the server's
   // requireApproval list.
   const [pendingApproval, setPendingApproval] = useState<{
@@ -317,25 +278,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     setPendingApproval(null);
     d?.({ decision, persist });
   }
-  const [activeSpeakId, setActiveSpeakId] = useState<string | null>(null);
-
-  // Clear the active id once playback + loading both idle.
-  useEffect(() => {
-    if (!speaker.speaking && !speaker.loading) setActiveSpeakId(null);
-  }, [speaker.speaking, speaker.loading]);
-
-  const handleSpeak = useCallback(
-    (id: string, text: string) => {
-      setActiveSpeakId(id);
-      speaker.speak(text);
-    },
-    [speaker],
-  );
-
-  const handleSpeakStop = useCallback(() => {
-    speaker.stop();
-    setActiveSpeakId(null);
-  }, [speaker]);
   const { openId: artifactOpenId } = useArtifactPanel();
 
   const enabledTools = toolOverride ?? assistant?.enabledTools ?? [];
@@ -718,7 +660,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     const ac = new AbortController();
     abortRef.current = ac;
 
-    let cancelled = false;
     let lastTokens = { prompt: 0, completion: 0 };
 
     // Consumes one SSE stream. Returns a pause event if the loop paused
@@ -917,7 +858,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         setPendingApproval(null);
 
         if (decision.decision === "cancel") {
-          cancelled = true;
           break;
         }
 
@@ -965,15 +905,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       }
       flushNow();
       await persist(sid, assembled, lastTokens);
-
-      if (autoSpeakRef.current && !cancelled) {
-        const finalAssistant = [...assembled]
-          .reverse()
-          .find((m) => m.role === "assistant" && m.content?.trim());
-        if (finalAssistant?.content) {
-          handleSpeak(finalAssistant.id, finalAssistant.content);
-        }
-      }
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
         setMessages((prev) => [
@@ -1684,18 +1615,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                           ? redoLastUser
                           : undefined
                       }
-                      onSpeak={
-                        speaker.ready
-                          ? (text) => handleSpeak(m.id, text)
-                          : undefined
-                      }
-                      onSpeakStop={handleSpeakStop}
-                      isSpeaking={
-                        activeSpeakId === m.id && speaker.speaking
-                      }
-                      isSpeakLoading={
-                        activeSpeakId === m.id && speaker.loading
-                      }
                       onArtifactAutoFix={handleArtifactAutoFix}
                     />
                   </div>
@@ -1818,15 +1737,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           streaming={streaming}
           onSend={handleSend}
           onAbort={handleAbort}
-          autoSpeak={autoSpeak}
-          onAutoSpeakToggle={() => {
-            setAutoSpeak((v) => {
-              const next = !v;
-              autoSpeakRef.current = next;
-              if (!next) speaker.stop();
-              return next;
-            });
-          }}
           pendingAttachment={pendingComposerAttachment}
           onPendingAttachmentConsumed={() =>
             setPendingComposerAttachment(null)

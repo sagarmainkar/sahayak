@@ -9,8 +9,6 @@ import {
   Loader2,
   Sparkles,
   Mic,
-  Volume2,
-  VolumeX,
   FileText,
   FilePlus,
   Lock,
@@ -105,8 +103,6 @@ type Props = {
     templateId: string | null,
   ) => void;
   onAbort: () => void;
-  autoSpeak: boolean;
-  onAutoSpeakToggle: () => void;
   /** Externally-staged attachment (e.g. from the artifact screenshot
    *  button). When non-null, Composer appends it to its attachment list
    *  and calls `onPendingAttachmentConsumed` so the parent can clear
@@ -206,8 +202,6 @@ export function Composer({
   streaming,
   onSend,
   onAbort,
-  autoSpeak,
-  onAutoSpeakToggle,
   pendingAttachment,
   onPendingAttachmentConsumed,
 }: Props) {
@@ -829,26 +823,6 @@ export function Composer({
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Mic className="h-3.5 w-3.5" />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={onAutoSpeakToggle}
-            className={cn(
-              "tt tt-above flex items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
-              autoSpeak ? "text-accent" : "text-fg-subtle hover:text-fg",
-            )}
-            data-tip={
-              autoSpeak
-                ? "Auto-speak replies on"
-                : "Auto-speak replies off"
-            }
-            aria-pressed={autoSpeak}
-          >
-            {autoSpeak ? (
-              <Volume2 className="h-3.5 w-3.5" />
-            ) : (
-              <VolumeX className="h-3.5 w-3.5" />
             )}
           </button>
           </div>
