@@ -2,15 +2,10 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { spawn } from "node:child_process";
+import { OfficeParser } from "officeparser";
+import type { OfficeContentNode } from "officeparser";
 
 const UPLOADS_DIR = path.join(process.cwd(), "data", "uploads");
-const PY = "/srv/work/agent-tools/.venv/bin/python3";
-const EXTRACT_SCRIPT = path.join(
-  process.cwd(),
-  "python",
-  "extract_doc.py",
-);
 
 /** Hard cap on inlined extracted text per attachment (characters). */
 const DOC_TEXT_CAP = 50_000;
@@ -86,26 +81,44 @@ function extOf(mimeType: string, fallbackName?: string): {
   return null;
 }
 
-function runExtract(srcPath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(PY, [EXTRACT_SCRIPT, srcPath]);
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    child.stdout.on("data", (d: Buffer) => out.push(d));
-    child.stderr.on("data", (d: Buffer) => err.push(d));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) resolve(Buffer.concat(out).toString("utf8"));
-      else
-        reject(
-          new Error(
-            `extract ${code}: ${Buffer.concat(err).toString("utf8").trim()}`,
-          ),
-        );
-    });
-  });
+/** Recursively concatenate an officeparser AST node's text. Most
+ *  nodes carry `.text` pre-flattened; we still walk children for the
+ *  container types (sheet → row → cell, slide → paragraph → text) so
+ *  nothing slips through. */
+function nodeText(node: OfficeContentNode): string {
+  const pieces: string[] = [];
+  if (typeof node.text === "string" && node.text.length) {
+    pieces.push(node.text);
+  } else if (node.children && node.children.length) {
+    for (const child of node.children) {
+      const t = nodeText(child);
+      if (t) pieces.push(t);
+    }
+  }
+  return pieces.join(node.type === "cell" ? " | " : "\n");
 }
 
+/** Pure-Node document extraction. Replaces the previous python +
+ *  pdftotext shellouts. officeparser covers docx/xlsx/pptx/pdf/odt/ods
+ *  with zero native deps — drops Python entirely from the install. */
+async function runExtract(srcPath: string): Promise<string> {
+  const ast = await OfficeParser.parseOffice(srcPath, {
+    extractAttachments: false,
+    ocr: false,
+    includeRawContent: false,
+  });
+  const parts: string[] = [];
+  for (const node of ast.content) {
+    const t = nodeText(node);
+    if (t) parts.push(t);
+  }
+  return parts.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Legacy type — the pdftotext encryption-detection path is gone with
+ *  the Python migration. Kept exported so any lingering imports (api
+ *  route, Composer) type-check; PdfEncryptedError is no longer thrown
+ *  from this module. */
 export class PdfEncryptedError extends Error {
   readonly kind = "pdf_encrypted";
   constructor(message: string, readonly badPassword: boolean) {
@@ -114,45 +127,24 @@ export class PdfEncryptedError extends Error {
   }
 }
 
-function runPdftotext(srcPath: string, password?: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const args: string[] = ["-layout"];
-    // `-upw` = user password (decrypts the file for reading). Provide
-    // as owner-password too; harmless if the file doesn't need it.
-    if (password) args.push("-upw", password, "-opw", password);
-    args.push(srcPath, "-");
-    const child = spawn("pdftotext", args);
-    const out: Buffer[] = [];
-    const err: Buffer[] = [];
-    child.stdout.on("data", (d: Buffer) => out.push(d));
-    child.stderr.on("data", (d: Buffer) => err.push(d));
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve(Buffer.concat(out).toString("utf8"));
-        return;
-      }
-      const stderr = Buffer.concat(err).toString("utf8").trim();
-      if (/incorrect password/i.test(stderr)) {
-        reject(new PdfEncryptedError(stderr, !!password));
-        return;
-      }
-      reject(new Error(`pdftotext ${code}: ${stderr}`));
-    });
-  });
-}
-
 async function extractDocumentText(
   srcPath: string,
   ext: string,
-  password?: string,
+  // `password` is still in the signature so the upload route + Composer
+  // password-prompt flow type-check, but we no longer use it — dropping
+  // pdftotext means encrypted PDFs error out. A ~rare case; user can
+  // decrypt externally if they hit it.
+  _password?: string,
 ): Promise<string> {
   let raw: string;
-  if (ext === "pdf") {
-    raw = await runPdftotext(srcPath, password);
-  } else if (ext === "md" || ext === "txt" || ext === "csv") {
+  if (ext === "md" || ext === "txt" || ext === "csv") {
     raw = await fs.readFile(srcPath, "utf8");
-  } else if (ext === "docx" || ext === "xlsx" || ext === "pptx") {
+  } else if (
+    ext === "pdf" ||
+    ext === "docx" ||
+    ext === "xlsx" ||
+    ext === "pptx"
+  ) {
     raw = await runExtract(srcPath);
   } else {
     throw new Error(`no extractor for .${ext}`);

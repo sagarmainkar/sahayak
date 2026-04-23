@@ -9,7 +9,6 @@ import {
 } from "./fs";
 import { executeCommand } from "./shell";
 import { webSearch, webFetch } from "./web";
-import { gmailSearch, gmailHeaders, gmailBody, gmailThread } from "./gmail";
 import { artifactCreate, artifactWriteFile } from "./artifact";
 import { remember, recallMemory, listAllMemories } from "./memory";
 import { callMcpTool, getAllMcpTools } from "@/lib/mcp/registry";
@@ -24,10 +23,6 @@ export const ALL_TOOLS: ToolSpec[] = [
   executeCommand,
   webSearch,
   webFetch,
-  gmailSearch,
-  gmailHeaders,
-  gmailBody,
-  gmailThread,
   artifactCreate,
   artifactWriteFile,
   remember,

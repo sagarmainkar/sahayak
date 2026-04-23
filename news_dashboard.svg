@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+  <defs>
+    <linearGradient id="bg-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2332;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#0d1520;stop-opacity:1"/>
+    </linearGradient>
+    <style>
+      .title { font-family: 'Segoe UI', Arial, sans-serif; fill: #ffffff; font-size: 32px; font-weight: bold; }
+      .subtitle { font-family: 'Segoe UI', Arial, sans-serif; fill: #8899aa; font-size: 16px; }
+      .news-card { fill: #1e2a3d; stroke: #2d4a6b; stroke-width: 2; }
+      .news-title { font-family: 'Segoe UI', Arial, sans-serif; fill: #ffffff; font-size: 20px; font-weight: 600; }
+      .news-summary { font-family: 'Segoe UI', Arial, sans-serif; fill: #a0b0c0; font-size: 14px; }
+      .source { font-family: 'Segoe UI', Arial, sans-serif; fill: #6b7c93; font-size: 12px; font-style: italic; }
+      .time { font-family: 'Segoe UI', Arial, sans-serif; fill: #4a5f75; font-size: 12px; }
+      .highlight { fill: #ffd700; }
+      .date { font-family: 'Segoe UI', Arial, sans-serif; fill: #5a7085; font-size: 24px; font-weight: bold; }
+      .emoji { font-size: 30px; }
+    </style>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="900" height="600" fill="url(#bg-gradient)"/>
+  
+  <!-- Header -->
+  <text x="30" y="40" class="title">🌍 Global News Dashboard</text>
+  <text x="30" y="65" class="subtitle">Latest Breaking News &amp; Updates</text>
+  
+  <!-- Date Banner -->
+  <text x="30" y="95" class="date" font-style="italic">April 21, 2026</text>
+  
+  <!-- News Item 1: EU-Israel Agreement -->
+  <rect x="30" y="120" width="420" height="180" class="news-card"/>
+  <circle cx="80" cy="150" r="30" fill="#2d4a6b"/>
+  <text x="110" y="145" class="emoji">🇪🇺</text>
+  <text x="60" y="175" class="news-title">EU-Israel Agreement Review 📝</text>
+  <text x="60" y="195" class="news-summary">Minister for Foreign Affairs Helen McEntee urges EU counterparts to suspend the EU-Israel Association Agreement citing new death-penalty law in Israel, escalating settler attacks in West Bank, and decreased humanitarian aid to Gaza.</text>
+  <text x="60" y="235" class="source">RTÉ News • Dublin</text>
+  <text x="60" y="250" class="time">11:30 AM</text>
+  
+  <!-- News Item 2: Iran-US Ceasefire -->
+  <rect x="470" y="120" width="400" height="180" class="news-card"/>
+  <circle cx="520" cy="150" r="30" fill="#4a7c3e"/>
+  <text x="550" y="145" class="emoji">🕊️</text>
+  <text x="470" y="175" class="news-title">US-Iran Ceasefire Agreement 💬</text>
+  <text x="470" y="195" class="news-summary">U.S. and Iran agree to two-week ceasefire brokered by Pakistan. Deal contingent on reopening Strait of Hormuz. Oil prices fell sharply, global share markets surged. Some sporadic attacks reported in Iran, UAE, Kuwait.</text>
+  <text x="470" y="235" class="source">CBC News • Toronto</text>
+  <text x="470" y="250" class="time">07:19 AM</text>
+  
+  <!-- News Item 3: Gaza Reconstruction -->
+  <rect x="30" y="320" width="420" height="160" class="news-card"/>
+  <circle cx="80" cy="350" r="30" fill="#c73e3e"/>
+  <text x="110" y="345" class="emoji">🏠</text>
+  <text x="60" y="370" class="news-title">Gaza Reconstruction Bill 💰</text>
+  <text x="60" y="390" class="news-summary">EU donor conference announces Gaza reconstruction bill has risen to $71 billion. Reconstruction efforts continue despite ongoing challenges.</text>
+  <text x="60" y="425" class="source">RTÉ News • Brussels</text>
+  <text x="60" y="440" class="time">Yesterday</text>
+  
+  <!-- News Item 4: Hungary-Ukraine Loan -->
+  <rect x="470" y="320" width="400" height="160" class="news-card"/>
+  <circle cx="520" cy="350" r="30" fill="#4a7c3e"/>
+  <text x="550" y="345" class="emoji">🇺🇦</text>
+  <text x="470" y="370" class="news-title">Hungary &amp; Ukraine Loan €90B 🤝</text>
+  <text x="470" y="390" class="news-summary">Hungary to lift opposition to €90 billion loan to Ukraine. New Hungarian foreign minister Anita Orbán signals constructive cooperation with EU.</text>
+  <text x="470" y="425" class="source">RTÉ News • Dublin</text>
+  <text x="470" y="440" class="time">Yesterday</text>
+  
+  <!-- Decorative Elements -->
+  <circle cx="900" cy="30" r="15" fill="#ffd700"/>
+  <circle cx="870" cy="55" r="15" fill="#c73e3e"/>
+  <circle cx="840" cy="80" r="15" fill="#4a7c3e"/>
+  
+  <!-- Footer -->
+  <rect x="30" y="550" width="840" height="20" fill="#0d1520"/>
+  <text x="30" y="575" class="subtitle">⚡ Live Updates • Reliable Sources • Global Coverage</text>
+</svg>

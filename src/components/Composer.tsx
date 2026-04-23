@@ -8,7 +8,6 @@ import {
   X,
   Loader2,
   Sparkles,
-  Mic,
   FileText,
   FilePlus,
   Lock,
@@ -266,10 +265,6 @@ export function Composer({
     return () => window.removeEventListener("mousedown", onDown);
   }, [showTemplatePicker]);
   const [slashNote, setSlashNote] = useState<string | null>(null);
-  const [recording, setRecording] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Consume externally-staged attachments (e.g. artifact screenshots).
@@ -301,101 +296,10 @@ export function Composer({
     setTimeout(() => setSlashNote((cur) => (cur === msg ? null : cur)), ms);
   }
 
-  async function startRecording() {
-    if (recording || transcribing) return;
-    // navigator.mediaDevices is only exposed in a secure context —
-    // HTTPS or localhost. Opening the dev server over plain HTTP (e.g.
-    // from a phone on the LAN) leaves it undefined. Surface a helpful
-    // message instead of a cryptic property-read error.
-    if (
-      typeof navigator === "undefined" ||
-      !navigator.mediaDevices?.getUserMedia
-    ) {
-      // Two common failure modes on mobile:
-      //  - Serving over http:// (mediaDevices is gated to secure
-      //    context); reach for HTTPS or localhost.
-      //  - Browser genuinely doesn't support getUserMedia.
-      // Either way, the OS keyboard's native dictate button is a
-      // zero-friction workaround — tell the user to use that.
-      const touchDevice =
-        typeof window !== "undefined" &&
-        "ontouchstart" in window;
-      const insecure =
-        typeof window !== "undefined" && window.isSecureContext === false;
-      const reason = touchDevice
-        ? "Tip: tap the mic on your keyboard to dictate. (Our in-app mic needs HTTPS.)"
-        : insecure
-          ? "Voice input needs HTTPS (or localhost). Open Sahayak over https://…"
-          : "Voice input isn't supported in this browser.";
-      flashNote(reason, 6000);
-      textareaRef.current?.focus();
-      return;
-    }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Pick a mime type the browser supports; fall back to default.
-      const candidates = [
-        "audio/webm;codecs=opus",
-        "audio/webm",
-        "audio/ogg;codecs=opus",
-      ];
-      const mimeType = candidates.find((c) => MediaRecorder.isTypeSupported(c));
-      const rec = new MediaRecorder(
-        stream,
-        mimeType ? { mimeType } : undefined,
-      );
-      recorderRef.current = rec;
-      chunksRef.current = [];
-      rec.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, {
-          type: rec.mimeType || "audio/webm",
-        });
-        chunksRef.current = [];
-        setRecording(false);
-        await transcribe(blob);
-      };
-      rec.start();
-      setRecording(true);
-    } catch (e) {
-      flashNote(`mic error: ${(e as Error).message}`, 4000);
-    }
-  }
-
-  function stopRecording() {
-    const rec = recorderRef.current;
-    if (rec && rec.state !== "inactive") rec.stop();
-  }
-
-  async function transcribe(blob: Blob) {
-    setTranscribing(true);
-    try {
-      const ext = blob.type.includes("ogg") ? "ogg" : "webm";
-      const fd = new FormData();
-      fd.append("audio", blob, `clip.${ext}`);
-      const r = await fetch("/api/transcribe", { method: "POST", body: fd });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({ error: "unknown" }));
-        flashNote(`transcribe failed: ${j.error ?? r.status}`, 4000);
-        return;
-      }
-      const j = (await r.json()) as { text: string };
-      const text = (j.text ?? "").trim();
-      if (!text) {
-        flashNote("no speech detected", 2500);
-        return;
-      }
-      // Append to whatever the user has already typed.
-      setInput((prev) => (prev ? `${prev} ${text}` : text));
-    } catch (e) {
-      flashNote(`transcribe error: ${(e as Error).message}`, 4000);
-    } finally {
-      setTranscribing(false);
-    }
-  }
+  // In-app voice recording + /api/transcribe removed for the
+  // open-source cut — that path required Python + faster-whisper. Use
+  // your OS keyboard's built-in dictate button instead; it works in
+  // any text field including this composer.
 
   function clear() {
     setInput("");
@@ -798,33 +702,6 @@ export function Composer({
               </div>,
               document.body,
             )}
-          <button
-            type="button"
-            onClick={recording ? stopRecording : startRecording}
-            disabled={transcribing}
-            className={cn(
-              "tt tt-above flex items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted disabled:opacity-50",
-              recording
-                ? "animate-pulse text-red-500"
-                : transcribing
-                  ? "text-fg-subtle"
-                  : "text-fg-subtle hover:text-fg",
-            )}
-            data-tip={
-              recording
-                ? "Recording — click to stop"
-                : transcribing
-                  ? "Transcribing…"
-                  : "Dictate (click to record)"
-            }
-            aria-pressed={recording}
-          >
-            {transcribing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Mic className="h-3.5 w-3.5" />
-            )}
-          </button>
           </div>
           {streaming ? (
             <button
