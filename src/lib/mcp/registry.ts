@@ -167,6 +167,23 @@ async function connectOne(server: McpServer): Promise<PoolEntry> {
   };
   pool.set(server.id, entry);
 
+  /** Race `p` against a timeout so one dead server can't freeze
+   *  /api/tools for everyone. Rejects with a friendly message on
+   *  expiry; caller's catch marks this entry errored. */
+  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+    return Promise.race([
+      p,
+      new Promise<T>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`${label} timed out after ${ms}ms`)),
+          ms,
+        ),
+      ),
+    ]);
+  }
+  const CONNECT_TIMEOUT_MS = 8_000;
+  const LIST_TIMEOUT_MS = 10_000;
+
   entry.connectingPromise = (async () => {
     try {
       const transportKind = server.transport ?? "stdio";
@@ -195,10 +212,18 @@ async function connectOne(server: McpServer): Promise<PoolEntry> {
         { name: "sahayak", version: "0.1.0" },
         { capabilities: {} },
       );
-      await client.connect(transport);
+      await withTimeout(
+        client.connect(transport),
+        CONNECT_TIMEOUT_MS,
+        `connect ${server.name}`,
+      );
       entry.client = client;
       entry.transport = transport;
-      const res = await client.listTools();
+      const res = await withTimeout(
+        client.listTools(),
+        LIST_TIMEOUT_MS,
+        `listTools ${server.name}`,
+      );
       entry.tools = res.tools.map((t) => ({
         name: `mcp:${server.name}:${t.name}`,
         description: t.description ?? "",
