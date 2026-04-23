@@ -13,7 +13,10 @@ export function CapabilityPills({ model }: { model: ModelInfo | undefined }) {
   if (!model) return null;
   const caps = (model.capabilities ?? []).filter((c) => c !== "completion");
   return (
-    <div className="flex items-center gap-1">
+    // Hidden on mobile — these are passive "what the model supports"
+    // badges, not actions, so they don't earn header real estate on a
+    // phone. ≥md brings them back inline.
+    <div className="hidden items-center gap-1 md:flex">
       {caps.map((c) => {
         const info = LABELS[c] ?? { label: c, tip: c };
         return (

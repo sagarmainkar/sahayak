@@ -1719,8 +1719,28 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               onAttachScreenshot={(a) => setPendingComposerAttachment(a)}
             />
           ) : showTools && (
-            <aside className="fixed inset-y-0 right-0 z-30 w-[85vw] max-w-[320px] overflow-y-auto border-l border-border bg-bg-elev p-3 shadow-xl md:static md:z-auto md:w-72 md:max-w-none md:shadow-none">
-              <div className="byline mb-2">tools</div>
+            <>
+              {/* Backdrop — mobile only — taps close the drawer. */}
+              <div
+                className="fixed inset-0 z-20 bg-black/40 md:hidden"
+                onClick={() => setShowTools(false)}
+                aria-hidden
+              />
+              <aside className="fixed inset-y-0 right-0 z-30 w-[85vw] max-w-[320px] overflow-y-auto border-l border-border bg-bg-elev p-3 shadow-xl md:static md:z-auto md:w-72 md:max-w-none md:shadow-none">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="byline">tools</div>
+                  {/* Close control — visible below md because the
+                      trigger in the top bar is covered by this drawer
+                      when open. */}
+                  <button
+                    onClick={() => setShowTools(false)}
+                    className="tt rounded p-1 text-fg-muted hover:bg-bg-muted hover:text-fg md:hidden"
+                    data-tip="Close"
+                    aria-label="Close tools panel"
+                  >
+                    <XIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               {Object.entries(
                 allTools.reduce<Record<string, ToolPublic[]>>((acc, t) => {
                   (acc[t.group] ??= []).push(t);
@@ -1779,7 +1799,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   reset to assistant defaults
                 </button>
               )}
-            </aside>
+              </aside>
+            </>
           )}
         </div>
 
