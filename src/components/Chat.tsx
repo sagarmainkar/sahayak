@@ -655,6 +655,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       enabledTools,
       artifactsEnabled,
       autoApproveTools: [...sessionApprovedTools],
+      // If the assistant carries a num_ctx override, the server will
+      // swap to a derived Ollama model automatically.
+      contextLength: assistant.contextLength,
     };
 
     const ac = new AbortController();

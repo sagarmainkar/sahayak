@@ -8,6 +8,7 @@ import {
 } from "@/lib/toolLoop";
 import { startPiRun } from "@/lib/toolLoopPi";
 import { buildAlwaysInjectedBlock } from "@/lib/memory";
+import { deriveCtxModel } from "@/lib/ollama";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,6 +29,9 @@ type ChatRequest = {
   /** Tool names that always require user approval. Server has a sensible
    *  default; client can override (future per-assistant config). */
   requireApproval?: string[];
+  /** Per-assistant context-window override. When set, Sahayak derives a
+   *  sibling Ollama model with num_ctx baked in and uses that here. */
+  contextLength?: number;
 };
 
 export async function POST(req: Request) {
@@ -56,6 +60,21 @@ export async function POST(req: Request) {
   // (kept around for a while longer so we can still compare).
   const usePi = process.env.SAHAYAK_LLM_BACKEND !== "native";
 
+  // Resolve the effective model name. If the assistant has a
+  // contextLength override, Sahayak auto-derives a sibling Ollama
+  // model with that num_ctx baked in (idempotent: reuses existing).
+  // Failures fall back to the base model — the turn still runs, just
+  // without the overridden context window.
+  let effectiveModel = body.model;
+  if (body.contextLength && body.contextLength > 0) {
+    try {
+      effectiveModel = await deriveCtxModel(body.model, body.contextLength);
+    } catch (e) {
+      console.error("[ctx override] derive failed:", (e as Error).message);
+      effectiveModel = body.model;
+    }
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       if (usePi) {
@@ -66,7 +85,7 @@ export async function POST(req: Request) {
           {
             systemPrompt: systemWithMemory ?? "",
             clientMessages: clientMsgs,
-            model: body.model,
+            model: effectiveModel,
             think: body.think ?? "medium",
             enabledTools: enabled,
             autoApproveTools: body.autoApproveTools ?? [],
@@ -86,7 +105,7 @@ export async function POST(req: Request) {
           pendingToolCalls: [],
           pendingApprovalIndex: 0,
           turn: 0,
-          model: body.model,
+          model: effectiveModel,
           think: body.think ?? "medium",
           enabledTools: enabled,
           autoApproveTools: body.autoApproveTools ?? [],

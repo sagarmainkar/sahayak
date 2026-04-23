@@ -215,6 +215,7 @@ export async function createAssistant(
     systemPrompt: input.systemPrompt ?? "",
     enabledTools: input.enabledTools ?? [],
     thinkMode: input.thinkMode ?? "medium",
+    contextLength: input.contextLength,
     createdAt: now,
     updatedAt: now,
   };

@@ -192,7 +192,7 @@ export function AssistantEditor({
         </Section>
 
         <Section title="Model & reasoning">
-          <div className="grid grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
             <Field label="Model">
               <select
                 value={form.model ?? ""}
@@ -223,6 +223,21 @@ export function AssistantEditor({
                 <option value="high">high</option>
               </select>
             </Field>
+          </div>
+          <div className="mt-5">
+            <ContextLengthField
+              value={form.contextLength}
+              baseDefault={
+                models.find((m) => m.name === form.model)?.contextLength ??
+                null
+              }
+              onChange={(n) =>
+                setForm({
+                  ...form,
+                  contextLength: n ?? undefined,
+                })
+              }
+            />
           </div>
         </Section>
 
@@ -338,5 +353,111 @@ function Field({
       </label>
       {children}
     </div>
+  );
+}
+
+/**
+ * Context-length override for the selected base model. Sahayak bakes
+ * a derived Ollama model with this num_ctx at first use, so the user
+ * just picks the number — no modelfile authoring required. Presets
+ * cover the common lengths; custom accepts any positive integer.
+ */
+function ContextLengthField({
+  value,
+  baseDefault,
+  onChange,
+}: {
+  value: number | undefined;
+  baseDefault: number | null;
+  onChange: (n: number | null) => void;
+}) {
+  const presets = [8192, 16384, 32768, 65536, 131072, 262144];
+  const [custom, setCustom] = useState<string>(
+    value && !presets.includes(value) ? String(value) : "",
+  );
+  const fmt = (n: number) =>
+    n >= 1024 ? `${Math.round(n / 1024)}k` : `${n}`;
+  return (
+    <div>
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <label className="font-sans text-[11px] uppercase tracking-[0.1em] text-fg-subtle">
+          Context length
+        </label>
+        <span className="font-serif text-[11.5px] italic text-fg-subtle">
+          {baseDefault
+            ? `base model reports ${fmt(baseDefault)} tokens`
+            : "unknown base default"}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <PresetChip
+          active={value === undefined}
+          label="default"
+          onClick={() => {
+            onChange(null);
+            setCustom("");
+          }}
+        />
+        {presets.map((n) => (
+          <PresetChip
+            key={n}
+            active={value === n}
+            label={fmt(n)}
+            onClick={() => {
+              onChange(n);
+              setCustom("");
+            }}
+          />
+        ))}
+        <input
+          type="number"
+          min={1}
+          step={1}
+          placeholder="custom"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onBlur={() => {
+            const n = parseInt(custom, 10);
+            if (Number.isFinite(n) && n > 0) onChange(n);
+            else setCustom("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              (e.currentTarget as HTMLInputElement).blur();
+            }
+          }}
+          className="w-24 rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] focus:border-accent focus:outline-none"
+        />
+      </div>
+      <div className="mt-1.5 font-serif text-[11.5px] italic text-fg-muted">
+        Overrides the model&apos;s <span className="font-mono not-italic">num_ctx</span>.
+        Sahayak builds a derived Ollama model on first use — cached by Ollama
+        afterwards, hidden from the picker. Bigger context = more RAM/VRAM.
+      </div>
+    </div>
+  );
+}
+
+function PresetChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? "rounded border border-accent bg-accent/10 px-2 py-1 font-mono text-[11px] text-accent"
+          : "rounded border border-border bg-bg px-2 py-1 font-mono text-[11px] text-fg-muted hover:border-border-strong hover:text-fg"
+      }
+    >
+      {label}
+    </button>
   );
 }

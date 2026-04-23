@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listModels, showModel } from "@/lib/ollama";
+import { isDerivedByUs, listModels, showModel } from "@/lib/ollama";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +21,12 @@ function parseNumCtx(parameters: string | undefined): number | null {
 export async function GET() {
   try {
     const models = await listModels();
+    // Sahayak-derived models are internal plumbing used by
+    // per-assistant context overrides; users shouldn't see them in
+    // the picker.
+    const userFacing = models.filter((m) => !isDerivedByUs(m.name));
     const enriched = await Promise.all(
-      models.map(async (m) => {
+      userFacing.map(async (m) => {
         try {
           const info = await showModel(m.name);
           const caps = info.capabilities ?? [];

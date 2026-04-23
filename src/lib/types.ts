@@ -17,6 +17,11 @@ export type Assistant = {
   systemPrompt: string;
   enabledTools: string[];
   thinkMode: "off" | "low" | "medium" | "high";
+  /** Runtime context-window override (tokens). When set, Sahayak
+   *  derives a sibling Ollama model with this `num_ctx` baked in and
+   *  uses that for chats on this assistant. Undefined = use the
+   *  model's own declared / user-baked context window. */
+  contextLength?: number;
   createdAt: number;
   updatedAt: number;
 };
