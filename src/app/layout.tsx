@@ -9,6 +9,7 @@ import {
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ArtifactPanelProvider } from "@/components/ArtifactPanelContext";
+import { ConfirmDialogProvider } from "@/components/ConfirmDialog";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-ui-mono", subsets: ["latin"] });
@@ -49,7 +50,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-bg text-fg font-sans">
         <ThemeProvider>
-          <ArtifactPanelProvider>{children}</ArtifactPanelProvider>
+          <ConfirmDialogProvider>
+            <ArtifactPanelProvider>{children}</ArtifactPanelProvider>
+          </ConfirmDialogProvider>
         </ThemeProvider>
       </body>
     </html>

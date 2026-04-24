@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/cn";
 import { fmtRelative } from "@/lib/fmt";
 import type { Settings } from "@/lib/settings";
+import { useConfirm } from "./ConfirmDialog";
 
 type CleanupCandidate = {
   kind: "session" | "artifact";
@@ -34,6 +35,7 @@ function fmtBytes(n: number): string {
 }
 
 export function SettingsPage() {
+  const confirm = useConfirm();
   const [settings, setSettings] = useState<Settings | null>(null);
   const [saved, setSaved] = useState(false);
   const [cleanup, setCleanup] = useState<CleanupReport | null>(null);
@@ -58,7 +60,16 @@ export function SettingsPage() {
 
   async function runCleanup() {
     if (cleanup && cleanup.candidates.length === 0) return;
-    if (!confirm(`Delete ${cleanup?.candidates.length ?? 0} item(s)?`)) return;
+    const n = cleanup?.candidates.length ?? 0;
+    if (
+      !(await confirm({
+        title: "Storage cleanup",
+        message: `Permanently delete ${n} session${n === 1 ? "" : "s"} and everything they contain (uploads, artifacts)?`,
+        tone: "danger",
+        confirmLabel: "Delete",
+      }))
+    )
+      return;
     setCleanupRunning(true);
     try {
       const r = await fetch("/api/cleanup", { method: "POST" });
@@ -440,6 +451,7 @@ function TransportTab({
 }
 
 function McpServersSection() {
+  const confirm = useConfirm();
   const [servers, setServers] = useState<McpServerSummary[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
@@ -530,7 +542,14 @@ function McpServersSection() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Remove this MCP server?")) return;
+    if (
+      !(await confirm({
+        message: "Remove this MCP server?",
+        tone: "danger",
+        confirmLabel: "Remove",
+      }))
+    )
+      return;
     await fetch(`/api/mcp/${id}`, { method: "DELETE" });
     await load();
   }

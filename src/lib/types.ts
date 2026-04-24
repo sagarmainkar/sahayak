@@ -8,6 +8,8 @@ export type ModelInfo = {
   contextLength: number | null;
 };
 
+export type AssistantProvider = "ollama" | "llama-cpp";
+
 export type Assistant = {
   id: string;
   name: string;
@@ -17,11 +19,17 @@ export type Assistant = {
   systemPrompt: string;
   enabledTools: string[];
   thinkMode: "off" | "low" | "medium" | "high";
-  /** Runtime context-window override (tokens). When set, Sahayak
-   *  derives a sibling Ollama model with this `num_ctx` baked in and
-   *  uses that for chats on this assistant. Undefined = use the
-   *  model's own declared / user-baked context window. */
+  /** Runtime context-window override (tokens). Only meaningful for
+   *  ollama-provider assistants — Sahayak derives a sibling Ollama
+   *  model with this `num_ctx` baked in. llama.cpp servers set
+   *  context at launch (`-c N`), so this field is ignored there. */
   contextLength?: number;
+  /** Backend the assistant talks to. Default is "ollama". */
+  provider?: AssistantProvider;
+  /** Base URL of the llama.cpp server for provider === "llama-cpp"
+   *  assistants. Either `http://host:port` or `http://host:port/v1`.
+   *  Ignored when provider is ollama. */
+  llamaUrl?: string;
   createdAt: number;
   updatedAt: number;
 };

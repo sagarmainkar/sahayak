@@ -9,6 +9,8 @@ import {
 import { startPiRun } from "@/lib/toolLoopPi";
 import { buildAlwaysInjectedBlock } from "@/lib/memory";
 import { deriveCtxModel } from "@/lib/ollama";
+import { normalizeOpenAiBaseUrl } from "@/lib/piAdapters";
+import type { AssistantProvider } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,6 +39,12 @@ type ChatRequest = {
    *  find the files on disk. */
   assistantId: string;
   sessionId: string;
+  /** Backend the assistant chats through. "ollama" (default) or
+   *  "llama-cpp". When "llama-cpp", llamaUrl must be present. */
+  provider?: AssistantProvider;
+  /** llama.cpp server base URL; accepted in either `http://host:port`
+   *  or `http://host:port/v1` form. Ignored when provider is ollama. */
+  llamaUrl?: string;
 };
 
 export async function POST(req: Request) {
@@ -69,18 +77,43 @@ export async function POST(req: Request) {
     ? `${memBlock}\n\n---\n\n${body.system ?? ""}`.trim()
     : body.system;
 
-  // pi-mono is the default backend. Set SAHAYAK_LLM_BACKEND=native
-  // only as an escape hatch to fall back to the original Ollama loop
-  // (kept around for a while longer so we can still compare).
-  const usePi = process.env.SAHAYAK_LLM_BACKEND !== "native";
+  const provider: AssistantProvider = body.provider ?? "ollama";
+  let llamaBaseUrl: string | undefined;
+  if (provider === "llama-cpp") {
+    if (!body.llamaUrl) {
+      return new Response(
+        JSON.stringify({ error: "llama-cpp provider requires llamaUrl" }),
+        { status: 400 },
+      );
+    }
+    const normalized = normalizeOpenAiBaseUrl(body.llamaUrl);
+    if (!normalized) {
+      return new Response(
+        JSON.stringify({
+          error: `invalid llamaUrl: ${body.llamaUrl}`,
+        }),
+        { status: 400 },
+      );
+    }
+    llamaBaseUrl = normalized;
+  }
 
-  // Resolve the effective model name. If the assistant has a
-  // contextLength override, Sahayak auto-derives a sibling Ollama
-  // model with that num_ctx baked in (idempotent: reuses existing).
-  // Failures fall back to the base model — the turn still runs, just
-  // without the overridden context window.
+  // pi-mono is the default backend. Set SAHAYAK_LLM_BACKEND=native
+  // only as an escape hatch to fall back to the original Ollama loop.
+  // llama.cpp assistants force the pi path — the native loop speaks
+  // Ollama's non-standard /api/chat, which llama.cpp doesn't serve.
+  const usePi =
+    provider === "llama-cpp" || process.env.SAHAYAK_LLM_BACKEND !== "native";
+
+  // Resolve the effective model name. contextLength only maps to a
+  // derived Ollama model (via /api/create) — llama.cpp sets context
+  // at server start with `-c N`, so we silently ignore it there.
   let effectiveModel = body.model;
-  if (body.contextLength && body.contextLength > 0) {
+  if (
+    provider === "ollama" &&
+    body.contextLength &&
+    body.contextLength > 0
+  ) {
     try {
       effectiveModel = await deriveCtxModel(body.model, body.contextLength);
     } catch (e) {
@@ -112,6 +145,8 @@ export async function POST(req: Request) {
             maxToolTurns: body.maxToolTurns ?? 100,
             assistantId: scope.assistantId,
             sessionId: scope.sessionId,
+            provider,
+            llamaBaseUrl,
           },
           controller,
         );

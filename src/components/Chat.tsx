@@ -9,6 +9,7 @@ import {
 import { Markdown } from "./Markdown";
 import { ThemeToggle } from "./ThemeToggle";
 import { StyleSwitcher } from "./StyleSwitcher";
+import { useConfirm } from "./ConfirmDialog";
 import { CapabilityPills } from "./CapabilityPills";
 import { Thinking } from "./Thinking";
 import { TurnTimeline } from "./TurnTimeline";
@@ -214,6 +215,7 @@ const Turn = memo(function Turn({
 });
 
 export default function Chat({ assistantId, sessionId: initialSessionId }: Props) {
+  const confirm = useConfirm();
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [allTools, setAllTools] = useState<ToolPublic[]>([]);
@@ -305,13 +307,30 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         setAssistant(d.assistant);
         setToolOverride(null);
       });
-    fetch("/api/models")
-      .then((r) => r.json())
-      .then((d: { models: ModelInfo[] }) => setModels(d.models));
     fetch("/api/tools")
       .then((r) => r.json())
       .then((d: { tools: ToolPublic[] }) => setAllTools(d.tools));
   }, [assistantId]);
+
+  // Models list is provider-dependent: Ollama assistants get the
+  // local Ollama catalog; llama.cpp assistants get their server's
+  // /v1/models + /props. Without this split, the ContextPie couldn't
+  // resolve ctxMax for llama.cpp assistants (the loaded model wasn't
+  // in the Ollama list), so auto-compact + pie rendering silently
+  // broke.
+  useEffect(() => {
+    if (!assistant) return;
+    const isLlama = assistant.provider === "llama-cpp";
+    const llamaUrl = (assistant.llamaUrl ?? "").trim();
+    const url =
+      isLlama && llamaUrl
+        ? `/api/models?url=${encodeURIComponent(llamaUrl)}`
+        : "/api/models";
+    fetch(url)
+      .then((r) => r.json())
+      .then((d: { models: ModelInfo[] }) => setModels(d.models ?? []))
+      .catch(() => setModels([]));
+  }, [assistant]);
 
   const loadSessions = useCallback(async () => {
     const r = await fetch(`/api/sessions?assistantId=${assistantId}`);
@@ -692,6 +711,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       // dirs need an authoritative scope).
       assistantId: assistant.id,
       sessionId: sid,
+      // Backend selector. When provider is "llama-cpp", llamaUrl
+      // tells the server which local OpenAI-compat endpoint to hit.
+      provider: assistant.provider ?? "ollama",
+      llamaUrl: assistant.llamaUrl,
     };
 
     const ac = new AbortController();
@@ -1028,7 +1051,15 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }
 
   async function deleteSession(id: string) {
-    if (!confirm("Delete this chat?")) return;
+    if (
+      !(await confirm({
+        title: "Delete chat",
+        message:
+          "Delete this chat along with its uploads and artifacts? This can't be undone.",
+        tone: "danger",
+      }))
+    )
+      return;
     await fetch(`/api/sessions/${id}`, { method: "DELETE" });
     if (sessionId === id) newSession();
     loadSessions();
@@ -1066,13 +1097,83 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
     const keep = messages.slice(-4);
     const older = messages.slice(0, messages.length - 4);
+    // Budget-aware compaction — everything scales from ctxMax so we
+    // never produce a summary that itself doesn't fit. Three knobs:
+    //   - summaryBudget: output tokens the summariser may emit.
+    //     Min(20% of ctxMax, 8k). 8k matches llama-server's default
+    //     `-n 8192` ceiling; Ollama is usually uncapped so 8k is the
+    //     practical limit on both paths.
+    //   - safetyMargin: system prompt + memory injection + a buffer
+    //     for the NEXT user message. 5% of ctxMax, floored at 2k.
+    //   - inputBudget: ctxMax - keep - summary - safety.
+    //     This is the total older-history tokens we feed to the
+    //     summariser. Middle-out truncated if exceeded.
+    // Fallback when ctxMax is unknown: conservative 32k defaults.
+    const fallbackCtx = 32_000;
+    const ctxForCalc = ctxMax ?? fallbackCtx;
+    const estimateTokens = (s: string) => Math.ceil(s.length / 4);
+    const keepTokens = keep.reduce(
+      (sum, m) => sum + estimateTokens(m.content ?? "") + estimateTokens(m.thinking ?? ""),
+      0,
+    );
+    const summaryBudget = Math.min(8000, Math.floor(ctxForCalc * 0.2));
+    const safetyMargin = Math.max(2000, Math.floor(ctxForCalc * 0.05));
+    const inputBudget = Math.max(
+      2000,
+      ctxForCalc - keepTokens - summaryBudget - safetyMargin,
+    );
+
+    // Serialise older messages (drop tool-role — they're noisy tool
+    // outputs already referenced by the assistant turns that called
+    // them). Each gets a `[role] content` wrapper the model can
+    // parse.
+    const blocks = older
+      .filter((m) => m.role !== "tool")
+      .map((m) => `[${m.role}] ${m.content}`);
+
+    // Middle-out truncation: if the serialised blob exceeds
+    // inputBudget, keep a head slice and a tail slice, dropping the
+    // middle. Head preserves origin context (project setup, early
+    // decisions); tail preserves what's most recent before `keep`.
+    // Marker replaces the gap so the summariser knows content was
+    // elided. Head/tail split 50/50 of the budget.
+    const joined = blocks.join("\n\n");
+    let summaryText: string;
+    let omittedCount = 0;
+    if (estimateTokens(joined) <= inputBudget) {
+      summaryText = joined;
+    } else {
+      const halfCharBudget = Math.floor((inputBudget * 4) / 2);
+      let headChars = 0;
+      const headBlocks: string[] = [];
+      for (const b of blocks) {
+        if (headChars + b.length > halfCharBudget) break;
+        headBlocks.push(b);
+        headChars += b.length + 2; // +2 for "\n\n" separator
+      }
+      let tailChars = 0;
+      const tailBlocks: string[] = [];
+      for (let i = blocks.length - 1; i >= headBlocks.length; i--) {
+        if (tailChars + blocks[i].length > halfCharBudget) break;
+        tailBlocks.unshift(blocks[i]);
+        tailChars += blocks[i].length + 2;
+      }
+      omittedCount =
+        blocks.length - headBlocks.length - tailBlocks.length;
+      summaryText = [
+        ...headBlocks,
+        `[system-note] … ${omittedCount} middle messages elided to fit summariser budget …`,
+        ...tailBlocks,
+      ].join("\n\n");
+    }
+
     const placeholderId = uid();
     const makePlaceholder = (streamedText: string): ChatMessage => ({
       id: placeholderId,
       role: "system",
       content: streamedText
-        ? `⏳ Summarising ${older.length} earlier messages…\n\n${streamedText}`
-        : `⏳ Summarising ${older.length} earlier messages…`,
+        ? `⏳ Summarising ${older.length} earlier messages${omittedCount ? ` (${omittedCount} in the middle elided)` : ""}…\n\n${streamedText}`
+        : `⏳ Summarising ${older.length} earlier messages${omittedCount ? ` (${omittedCount} in the middle elided)` : ""}…`,
       createdAt: Date.now(),
     });
 
@@ -1084,20 +1185,25 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
     let text = "";
     try {
-      const summaryText = older
-        .filter((m) => m.role !== "tool")
-        .map((m) => `[${m.role}] ${m.content}`)
-        .join("\n\n")
-        .slice(0, 15000);
-      const summariserModel =
-        models.find((m) => m.name.includes("9b_128k"))?.name ?? activeModel;
+      // Prefer a small-and-fast local summariser when available, but
+      // llama.cpp assistants only have the one model loaded — use
+      // that. Ollama assistants get the 9b_128k fast-path if pulled.
+      const isLlama = assistant.provider === "llama-cpp";
+      const summariserModel = isLlama
+        ? activeModel
+        : models.find((m) => m.name.includes("9b_128k"))?.name ?? activeModel;
+      // Target length guidance in the system prompt — models follow
+      // these loosely but a clear number anchors them. Scaled to
+      // summaryBudget, expressed in "words" (~0.75 tokens/word) since
+      // that's how writers think.
+      const targetWords = Math.floor(summaryBudget * 0.75);
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: summariserModel,
           system:
-            "Summarise the chat history into a bullet list. Cover: key facts about the user or the work, decisions made, open questions, unresolved errors. Preserve names, IDs, file paths, commit hashes verbatim. Use short bullets (one sentence each). Scale the length to the input: 6-8 bullets for short chats, up to 25 for long multi-topic ones. Group related bullets under short italic sub-headings if the chat spans multiple topics.",
+            `Compress the chat history into a rich, faithful summary. Target length: around ${targetWords} words (±30%). Preserve: names, IDs, file paths, commit hashes, URLs, exact error messages, and specific numbers verbatim. Organise by topic with short ## sub-headings. Under each, use terse bullets capturing: what happened, decisions made, open questions, unresolved errors, facts about the user or project. Don't compress so tightly that specifics are lost — the summary is replacing the actual transcript and will be the agent's only memory of pre-compact turns. If the input contains a '[system-note] … elided …' marker, acknowledge the gap in a bullet.`,
           messages: [{ role: "user", content: summaryText }],
           think: false,
           // Even the summariser needs scope so server-side validation
@@ -1106,6 +1212,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           // guaranteed non-null here.
           assistantId: assistant.id,
           sessionId: sessionId as string,
+          provider: assistant.provider ?? "ollama",
+          llamaUrl: assistant.llamaUrl,
         }),
       });
       if (!r.ok || !r.body) {

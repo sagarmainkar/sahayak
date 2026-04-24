@@ -146,6 +146,8 @@ export async function createAssistant(
     enabledTools: input.enabledTools ?? [],
     thinkMode: input.thinkMode ?? "medium",
     contextLength: input.contextLength,
+    provider: input.provider ?? "ollama",
+    llamaUrl: input.llamaUrl,
     createdAt: now,
     updatedAt: now,
   };

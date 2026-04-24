@@ -9,6 +9,7 @@ import type {
 import type { AssistantMessage, ToolCall } from "@mariozechner/pi-ai";
 import {
   piModelForOllama,
+  piModelForOpenAICompat,
   piThinkLevel,
   piToolsFromEnabled,
   toPiMessages,
@@ -38,6 +39,12 @@ export type PiRunInput = {
    *  so everything this run touches lives under the session's dir. */
   assistantId: string;
   sessionId: string;
+  /** Backend selector. "ollama" uses OLLAMA_URL; "llama-cpp" uses
+   *  `llamaBaseUrl` (already normalised to end in /v1). Protocol is
+   *  identical (OpenAI /v1/chat/completions) — only the base URL
+   *  differs. */
+  provider: "ollama" | "llama-cpp";
+  llamaBaseUrl?: string;
 };
 
 type PauseEntry = {
@@ -154,9 +161,17 @@ function attachTranslator(
             toolCalls.push({ name: part.name, arguments: part.arguments });
           }
         }
+        // pi-ai splits prompt tokens into `input` (newly processed)
+        // and `cacheRead` (reused from the backend's KV cache). Both
+        // are part of the prompt the model saw. For ContextPie +
+        // auto-compact we want the full prompt size, so sum them.
+        // Ollama doesn't split, so cacheRead is 0 there and this is
+        // equivalent to the old behaviour.
+        const promptTokens =
+          (msg.usage?.input ?? 0) + (msg.usage?.cacheRead ?? 0);
         sse(controller, {
           type: "done_turn",
-          promptTokens: msg.usage?.input ?? 0,
+          promptTokens,
           completionTokens: msg.usage?.output ?? 0,
         });
         sse(controller, {
@@ -236,7 +251,10 @@ export async function startPiRun(
   controller: Controller,
 ): Promise<void> {
   sweep();
-  const model = piModelForOllama(input.model);
+  const model =
+    input.provider === "llama-cpp" && input.llamaBaseUrl
+      ? piModelForOpenAICompat(input.llamaBaseUrl, input.model, "llama-cpp")
+      : piModelForOllama(input.model);
   const scope = {
     assistantId: input.assistantId,
     sessionId: input.sessionId,

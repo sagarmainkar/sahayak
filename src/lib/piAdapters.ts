@@ -10,21 +10,28 @@ import type { ClientMsg } from "@/lib/toolLoop";
 import type { MsgAttachment } from "@/lib/types";
 
 /**
- * Build a pi-ai Model for an Ollama-hosted model via its OpenAI-compatible
- * `/v1` endpoint. pi-ai's `getModel` registry doesn't know about Ollama, so
- * we construct the Model by hand. `compat` disables OpenAI-only features
- * (store, reasoning_effort, developer role) that Ollama rejects.
+ * Build a pi-ai Model for any OpenAI-compatible server (Ollama's
+ * `/v1`, llama.cpp's `/v1`, vLLM, etc.). pi-ai's `getModel` registry
+ * doesn't know about local backends, so we construct the Model by
+ * hand. `compat` disables OpenAI-only features (store,
+ * reasoning_effort, developer role) that these servers reject.
  *
- * Note: `num_ctx` from the modelfile is respected server-side by Ollama;
- * it can't be passed over `/v1`, so we don't try.
+ * `baseUrl` must end with `/v1` (or whatever prefix the server uses
+ * before `/chat/completions`). The caller normalises.
  */
-export function piModelForOllama(modelId: string): Model<"openai-completions"> {
+export function piModelForOpenAICompat(
+  baseUrl: string,
+  modelId: string,
+  provider: "ollama" | "llama-cpp" = "ollama",
+): Model<"openai-completions"> {
   return {
     id: modelId,
     name: modelId,
     api: "openai-completions",
-    provider: "ollama",
-    baseUrl: `${OLLAMA_URL}/v1`,
+    // pi-ai's Model.provider is a free-form string that shows up in
+    // telemetry; "llama-cpp" or "ollama" both work.
+    provider: provider as unknown as Model<"openai-completions">["provider"],
+    baseUrl,
     reasoning: true,
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -43,6 +50,32 @@ export function piModelForOllama(modelId: string): Model<"openai-completions"> {
       supportsStrictMode: false,
     },
   };
+}
+
+/** Back-compat thin wrapper. Ollama's `/v1` base is derived from
+ *  `OLLAMA_URL`; `num_ctx` from the modelfile is respected
+ *  server-side by Ollama and can't be passed over `/v1`, so we
+ *  don't try. */
+export function piModelForOllama(modelId: string): Model<"openai-completions"> {
+  return piModelForOpenAICompat(`${OLLAMA_URL}/v1`, modelId, "ollama");
+}
+
+/** Normalise a user-supplied llama.cpp URL into a usable pi-ai
+ *  `baseUrl`. Accepts bare `http://host:port`, `http://host:port/`,
+ *  or `http://host:port/v1`. Returns the `/v1` form with no trailing
+ *  slash. Returns null for obviously bad input so callers can
+ *  surface a friendly error. */
+export function normalizeOpenAiBaseUrl(raw: string): string | null {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (!trimmed) return null;
+  try {
+    // Validate it parses.
+    new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (trimmed.endsWith("/v1")) return trimmed;
+  return `${trimmed}/v1`;
 }
 
 /** Map Sahayak thinkMode → pi-agent-core ThinkingLevel. */

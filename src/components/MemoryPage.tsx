@@ -5,6 +5,7 @@ import { Brain, Plus, Trash2, Search, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { fmtRelative } from "@/lib/fmt";
 import { MEMORY_TYPES, type MemoryEntry, type MemoryType } from "@/lib/types";
+import { useConfirm } from "./ConfirmDialog";
 
 type SearchHit = { entry: MemoryEntry; score: number };
 
@@ -18,6 +19,7 @@ const TYPE_LABEL: Record<MemoryType, string> = {
 };
 
 export function MemoryPage() {
+  const confirm = useConfirm();
   const [memories, setMemories] = useState<MemoryEntry[] | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -82,7 +84,8 @@ export function MemoryPage() {
   }
 
   async function remove(id: string) {
-    if (!confirm("Delete this memory?")) return;
+    if (!(await confirm({ message: "Delete this memory?", tone: "danger" })))
+      return;
     await fetch(`/api/memory/${id}`, { method: "DELETE" });
     await refresh();
   }

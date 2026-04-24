@@ -7,6 +7,7 @@ import Link from "next/link";
 import { cn } from "@/lib/cn";
 import type { Assistant, ModelInfo, ToolPublic } from "@/lib/types";
 import { ARCHETYPES } from "@/lib/archetypes";
+import { useConfirm } from "./ConfirmDialog";
 
 const EMOJIS = ["✨", "🤖", "🧠", "🎯", "🧭", "📚", "💻", "🔬", "✍️", "🎨", "🚀", "🛠️", "🧪", "🗺️", "📝"];
 const COLORS = [
@@ -32,19 +33,42 @@ export function AssistantEditor({
   assistantId?: string;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [form, setForm] = useState<Partial<Assistant>>(initial ?? DEFAULTS);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [tools, setTools] = useState<ToolPublic[]>([]);
   const [defaultPrompt, setDefaultPrompt] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
+  // Provider-dependent model refetch. When provider is "llama-cpp"
+  // and llamaUrl is a parseable URL, query that server's /v1/models.
+  // Otherwise fall back to Ollama's catalog. Debounced implicitly by
+  // React re-running the effect when either dependency changes.
   useEffect(() => {
-    fetch("/api/models")
+    const isLlama = form.provider === "llama-cpp";
+    const llamaUrl = (form.llamaUrl ?? "").trim();
+    const url =
+      isLlama && llamaUrl
+        ? `/api/models?url=${encodeURIComponent(llamaUrl)}`
+        : "/api/models";
+    fetch(url)
       .then((r) => r.json())
       .then((d: { models: ModelInfo[] }) => {
         setModels(d.models);
-        setForm((f) => ({ ...f, model: f.model || d.models[0]?.name || "" }));
-      });
+        // Don't blow away an existing selection; only autofill when
+        // empty or the current pick isn't in the new catalogue.
+        setForm((f) => {
+          const names = new Set((d.models ?? []).map((m) => m.name));
+          if (!f.model || !names.has(f.model)) {
+            return { ...f, model: d.models[0]?.name ?? "" };
+          }
+          return f;
+        });
+      })
+      .catch(() => setModels([]));
+  }, [form.provider, form.llamaUrl]);
+
+  useEffect(() => {
     fetch("/api/tools")
       .then((r) => r.json())
       .then((d: { tools: ToolPublic[] }) => setTools(d.tools));
@@ -53,7 +77,7 @@ export function AssistantEditor({
       .then((d: { systemPrompt: string }) => setDefaultPrompt(d.systemPrompt));
   }, []);
 
-  function loadArchetype(id: string) {
+  async function loadArchetype(id: string) {
     const archetype = ARCHETYPES.find((a) => a.id === id);
     if (!archetype) return;
     const cur = (form.systemPrompt ?? "").trim();
@@ -62,12 +86,12 @@ export function AssistantEditor({
       cur !== archetype.systemPrompt &&
       cur !== defaultPrompt
     ) {
-      if (
-        !confirm(
-          `Replace the current system prompt with the "${archetype.name}" template?`,
-        )
-      )
-        return;
+      const ok = await confirm({
+        title: "Replace system prompt?",
+        message: `This will overwrite your current system prompt with the "${archetype.name}" template.`,
+        confirmLabel: "Replace",
+      });
+      if (!ok) return;
     }
     setForm((f) => ({ ...f, systemPrompt: archetype.systemPrompt }));
   }
@@ -91,7 +115,14 @@ export function AssistantEditor({
 
   async function del() {
     if (!assistantId) return;
-    if (!confirm("Delete this assistant?")) return;
+    if (
+      !(await confirm({
+        title: "Delete assistant",
+        message: `Delete "${form.name ?? "this assistant"}" and all its chats, uploads, and artifacts? This can't be undone.`,
+        tone: "danger",
+      }))
+    )
+      return;
     await fetch(`/api/assistants/${assistantId}`, { method: "DELETE" });
     router.push("/");
   }
@@ -203,16 +234,47 @@ export function AssistantEditor({
         </Section>
 
         <Section title="Model & reasoning">
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-            <Field label="Model">
+          <ProviderField
+            provider={form.provider ?? "ollama"}
+            llamaUrl={form.llamaUrl ?? ""}
+            onProviderChange={(p) =>
+              setForm({
+                ...form,
+                provider: p,
+                // Switching providers invalidates the current model
+                // pick — the model-fetch effect will refill it from
+                // the new catalog. Clearing here avoids flashing an
+                // Ollama name in the llama.cpp dropdown.
+                model: "",
+              })
+            }
+            onUrlChange={(u) => setForm({ ...form, llamaUrl: u })}
+          />
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <Field
+              label={
+                (form.provider ?? "ollama") === "llama-cpp"
+                  ? "Model (from llama.cpp)"
+                  : "Model"
+              }
+            >
               <select
                 value={form.model ?? ""}
                 onChange={(e) => setForm({ ...form, model: e.target.value })}
                 className="w-full rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
               >
+                {models.length === 0 && (
+                  <option value="" disabled>
+                    {(form.provider ?? "ollama") === "llama-cpp"
+                      ? "set the URL above to list models"
+                      : "no models found (is Ollama running?)"}
+                  </option>
+                )}
                 {models.map((m) => (
                   <option key={m.name} value={m.name}>
-                    {m.name} — {m.params} {m.quant}
+                    {m.name}
+                    {m.params ? ` — ${m.params}` : ""}
+                    {m.quant ? ` ${m.quant}` : ""}
                   </option>
                 ))}
               </select>
@@ -236,19 +298,29 @@ export function AssistantEditor({
             </Field>
           </div>
           <div className="mt-5">
-            <ContextLengthField
-              value={form.contextLength}
-              baseDefault={
-                models.find((m) => m.name === form.model)?.contextLength ??
-                null
-              }
-              onChange={(n) =>
-                setForm({
-                  ...form,
-                  contextLength: n ?? undefined,
-                })
-              }
-            />
+            {(form.provider ?? "ollama") === "llama-cpp" ? (
+              <div className="rounded-md border border-border bg-bg-paper px-3 py-2 font-sans text-[11.5px] text-fg-muted">
+                <span className="byline mr-2">context length</span>
+                set at server launch with{" "}
+                <span className="font-mono text-fg">-c N</span>; restart{" "}
+                <span className="font-mono text-fg">llama-server</span> to
+                change it.
+              </div>
+            ) : (
+              <ContextLengthField
+                value={form.contextLength}
+                baseDefault={
+                  models.find((m) => m.name === form.model)?.contextLength ??
+                  null
+                }
+                onChange={(n) =>
+                  setForm({
+                    ...form,
+                    contextLength: n ?? undefined,
+                  })
+                }
+              />
+            )}
           </div>
         </Section>
 
@@ -339,6 +411,64 @@ export function AssistantEditor({
           </div>
         </Section>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Pick the backend this assistant talks to. Ollama (default) uses the
+ * local Ollama server's OpenAI-compat `/v1`. llama.cpp points at any
+ * llama-server on a user-chosen URL — same wire protocol, just a
+ * different host. Model list refetches when either value changes.
+ */
+function ProviderField({
+  provider,
+  llamaUrl,
+  onProviderChange,
+  onUrlChange,
+}: {
+  provider: "ollama" | "llama-cpp";
+  llamaUrl: string;
+  onProviderChange: (p: "ollama" | "llama-cpp") => void;
+  onUrlChange: (url: string) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-1.5 font-mono text-[10.5px] uppercase tracking-[0.15em] text-fg-subtle">
+        provider
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[12px]">
+        {(["ollama", "llama-cpp"] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onProviderChange(p)}
+            className={cn(
+              "rounded-md border px-2.5 py-1 font-mono transition-colors",
+              provider === p
+                ? "border-accent bg-accent/10 text-fg"
+                : "border-border bg-bg text-fg-muted hover:border-accent/60 hover:text-fg",
+            )}
+          >
+            {p}
+          </button>
+        ))}
+        {provider === "llama-cpp" && (
+          <input
+            type="text"
+            value={llamaUrl}
+            onChange={(e) => onUrlChange(e.target.value)}
+            placeholder="http://localhost:8080"
+            spellCheck={false}
+            className="min-w-[220px] flex-1 rounded border border-border bg-bg px-2 py-1 font-mono text-[12px] text-fg focus:border-accent focus:outline-none"
+          />
+        )}
+      </div>
+      <p className="mt-1.5 font-sans text-[10.5px] text-fg-subtle">
+        {provider === "ollama"
+          ? "Local Ollama server at http://localhost:11434. Models from ollama list."
+          : "Any llama-server-compatible endpoint (llama.cpp, vLLM, etc.). Bare host or /v1 both accepted."}
+      </p>
     </div>
   );
 }

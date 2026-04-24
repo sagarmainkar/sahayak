@@ -5,9 +5,11 @@ import Link from "next/link";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { Header } from "@/components/Header";
 import { AssistantCard } from "@/components/AssistantCard";
+import { useConfirm } from "@/components/ConfirmDialog";
 import type { Assistant } from "@/lib/types";
 
 export default function Home() {
+  const confirm = useConfirm();
   const [assistants, setAssistants] = useState<Assistant[] | null>(null);
 
   async function load() {
@@ -21,7 +23,15 @@ export default function Home() {
   }, []);
 
   async function del(id: string) {
-    if (!confirm("Delete this assistant and all its chats?")) return;
+    const a = assistants?.find((x) => x.id === id);
+    if (
+      !(await confirm({
+        title: "Delete assistant",
+        message: `Delete "${a?.name ?? "this assistant"}" and all its chats, uploads, and artifacts? This can't be undone.`,
+        tone: "danger",
+      }))
+    )
+      return;
     await fetch(`/api/assistants/${id}`, { method: "DELETE" });
     load();
   }
