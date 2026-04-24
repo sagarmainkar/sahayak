@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { saveUpload, PdfEncryptedError } from "@/lib/uploads";
+import { isValidIdSegment } from "@/lib/paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -17,8 +18,21 @@ export async function POST(req: Request) {
   const form = await req.formData();
   const file = form.get("file");
   const password = form.get("password");
+  const assistantId = form.get("assistantId");
+  const sessionId = form.get("sessionId");
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file required" }, { status: 400 });
+  }
+  if (
+    typeof assistantId !== "string" ||
+    typeof sessionId !== "string" ||
+    !isValidIdSegment(assistantId) ||
+    !isValidIdSegment(sessionId)
+  ) {
+    return NextResponse.json(
+      { error: "assistantId and sessionId (form fields) are required" },
+      { status: 400 },
+    );
   }
   if (file.size > MAX_BYTES) {
     return NextResponse.json(
@@ -29,6 +43,7 @@ export async function POST(req: Request) {
   try {
     const buf = Buffer.from(await file.arrayBuffer());
     const up = await saveUpload(
+      { assistantId, sessionId },
       buf,
       file.type || "",
       file.name,

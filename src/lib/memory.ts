@@ -8,10 +8,11 @@ import {
   type MemoryEntry,
   type MemoryType,
 } from "@/lib/types";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const MEMORY_FILE = path.join(DATA_DIR, "memory.jsonl");
-const VEC_FILE = path.join(DATA_DIR, "memory.vec.jsonl");
+import {
+  CONFIG_DIR,
+  MEMORY_FILE,
+  MEMORY_VEC_FILE as VEC_FILE,
+} from "@/lib/paths";
 
 const EMBED_MODEL = "nomic-embed-text";
 
@@ -30,7 +31,7 @@ type LogRec = CreateRec | UpdateRec | DeleteRec;
 type VecRec = { id: string; vector: number[] };
 
 async function ensureDirs() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(CONFIG_DIR, { recursive: true });
 }
 
 async function appendLog(rec: LogRec) {

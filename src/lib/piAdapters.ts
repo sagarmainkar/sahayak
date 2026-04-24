@@ -2,9 +2,10 @@ import { Type, type Message, type Model, type TextContent } from "@mariozechner/
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { OLLAMA_URL } from "@/lib/ollama";
-import { resolveTool } from "@/lib/tools";
+import { resolveTool, withImplicit } from "@/lib/tools";
 import type { ToolSpec } from "@/lib/tools/types";
-import { readUpload, readUploadText } from "@/lib/uploads";
+import { readUpload, readUploadText, type UploadScope } from "@/lib/uploads";
+import type { ToolContext } from "@/lib/tools/types";
 import type { ClientMsg } from "@/lib/toolLoop";
 import type { MsgAttachment } from "@/lib/types";
 
@@ -65,7 +66,7 @@ export function piThinkLevel(
  * Tool output for the model is capped at 4000 chars (same as the native
  * loop). The full JSON is stashed in `details` so the UI can render it.
  */
-export function piToolFromSpec(spec: ToolSpec): AgentTool {
+export function piToolFromSpec(spec: ToolSpec, ctx: ToolContext): AgentTool {
   return {
     name: spec.name,
     description: spec.description,
@@ -74,7 +75,7 @@ export function piToolFromSpec(spec: ToolSpec): AgentTool {
     async execute(_toolCallId, params) {
       let result: { ok?: boolean; [k: string]: unknown };
       try {
-        result = await spec.handler(params as Record<string, unknown>);
+        result = await spec.handler(params as Record<string, unknown>, ctx);
       } catch (e) {
         result = {
           ok: false,
@@ -97,20 +98,25 @@ export function piToolFromSpec(spec: ToolSpec): AgentTool {
 
 export async function piToolsFromEnabled(
   enabled: string[],
+  ctx: ToolContext,
 ): Promise<AgentTool[]> {
-  const specs = await Promise.all(enabled.map((n) => resolveTool(n)));
+  // withImplicit appends the always-on memory tools so the model has
+  // them regardless of what the assistant enabled.
+  const names = withImplicit(enabled);
+  const specs = await Promise.all(names.map((n) => resolveTool(n)));
   return specs
     .filter((s): s is ToolSpec => !!s)
-    .map(piToolFromSpec);
+    .map((s) => piToolFromSpec(s, ctx));
 }
 
-async function attachmentImageData(a: MsgAttachment): Promise<
-  { data: string; mimeType: string } | null
-> {
+async function attachmentImageData(
+  scope: UploadScope,
+  a: MsgAttachment,
+): Promise<{ data: string; mimeType: string } | null> {
   if (a.type !== "image") return null;
   if (a.data) return { data: a.data, mimeType: a.mimeType };
   if (a.filename) {
-    const loaded = await readUpload(a.filename);
+    const loaded = await readUpload(scope, a.filename);
     if (!loaded) return null;
     return { data: loaded.buffer.toString("base64"), mimeType: a.mimeType };
   }
@@ -118,6 +124,7 @@ async function attachmentImageData(a: MsgAttachment): Promise<
 }
 
 async function expandDocsIntoText(
+  scope: UploadScope,
   content: string,
   attachments: MsgAttachment[] | undefined,
 ): Promise<string> {
@@ -125,7 +132,7 @@ async function expandDocsIntoText(
   const chunks: string[] = [];
   for (const a of attachments) {
     if (a.type !== "document") continue;
-    const text = await readUploadText(a.textFilename);
+    const text = await readUploadText(scope, a.textFilename);
     if (!text) continue;
     const label = a.originalName ?? a.filename;
     chunks.push(`\n\nAttached: ${label}\n\`\`\`\n${text}\n\`\`\``);
@@ -146,7 +153,10 @@ async function expandDocsIntoText(
  * The synthetic ids are stable for a given transcript walk but not across
  * calls — that's fine since pi-ai only uses them within a single request.
  */
-export async function toPiMessages(msgs: ClientMsg[]): Promise<Message[]> {
+export async function toPiMessages(
+  msgs: ClientMsg[],
+  scope: UploadScope,
+): Promise<Message[]> {
   const out: Message[] = [];
   let callCounter = 0;
   // Queue of (tool name → id) pairs emitted by the last assistant, in order,
@@ -162,10 +172,14 @@ export async function toPiMessages(msgs: ClientMsg[]): Promise<Message[]> {
     }
 
     if (m.role === "user") {
-      const text = await expandDocsIntoText(m.content ?? "", m.attachments);
+      const text = await expandDocsIntoText(
+        scope,
+        m.content ?? "",
+        m.attachments,
+      );
       const images: { type: "image"; data: string; mimeType: string }[] = [];
       for (const a of m.attachments ?? []) {
-        const img = await attachmentImageData(a);
+        const img = await attachmentImageData(scope, a);
         if (img) images.push({ type: "image", ...img });
       }
       out.push({

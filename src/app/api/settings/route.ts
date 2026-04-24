@@ -31,6 +31,11 @@ export async function PATCH(req: Request) {
       ? body.cleanup.ttlDays
       : undefined;
 
+  const apiKey: string | undefined =
+    typeof body?.ollama?.apiKey === "string"
+      ? body.ollama.apiKey
+      : undefined;
+
   const patch: SettingsPatch = {};
   if (backend !== undefined || voice !== undefined) {
     patch.tts = {};
@@ -39,6 +44,9 @@ export async function PATCH(req: Request) {
   }
   if (ttlDays !== undefined) {
     patch.cleanup = { ttlDays };
+  }
+  if (apiKey !== undefined) {
+    patch.ollama = { apiKey };
   }
   const settings = await writeSettings(patch);
   return NextResponse.json({ settings });

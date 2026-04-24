@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
 import { parse as babelParse } from "@babel/parser";
-import { createArtifact, listArtifacts } from "@/lib/artifacts";
+import { createArtifact } from "@/lib/artifacts";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const sessionId = url.searchParams.get("sessionId") ?? undefined;
-  const items = await listArtifacts({ sessionId });
-  return NextResponse.json({ artifacts: items });
-}
 
 /**
  * Parse the artifact JSX with Babel to catch syntax errors BEFORE the
@@ -34,8 +27,6 @@ function validateJsx(source: string): string | null {
       reasonCode?: string;
     };
     const loc = err.loc ? ` (line ${err.loc.line}:${err.loc.column})` : "";
-    // Strip the Babel prefix "SyntaxError: " if present — the rest is
-    // already informative and we'll add our own framing client-side.
     const msg = String(err.message ?? "syntax error").replace(
       /^SyntaxError:\s*/,
       "",
@@ -47,8 +38,11 @@ function validateJsx(source: string): string | null {
 export async function POST(req: Request) {
   const body = await req.json();
   if (!body.source || typeof body.source !== "string") {
+    return NextResponse.json({ error: "source required" }, { status: 400 });
+  }
+  if (!body.assistantId || !body.sessionId) {
     return NextResponse.json(
-      { error: "source required" },
+      { error: "assistantId and sessionId are required" },
       { status: 400 },
     );
   }
@@ -59,12 +53,13 @@ export async function POST(req: Request) {
       { status: 422 },
     );
   }
-  const a = await createArtifact({
-    id: body.id,
-    title: body.title ?? "Untitled",
-    source: body.source,
-    sessionId: body.sessionId ?? null,
-    assistantId: body.assistantId ?? null,
-  });
+  const a = await createArtifact(
+    { assistantId: body.assistantId, sessionId: body.sessionId },
+    {
+      id: body.id,
+      title: body.title ?? "Untitled",
+      source: body.source,
+    },
+  );
   return NextResponse.json({ artifact: a });
 }

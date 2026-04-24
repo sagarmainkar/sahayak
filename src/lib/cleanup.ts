@@ -1,14 +1,22 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
-import path from "node:path";
 import { readSettings, CLEANUP_TTL_BOUNDS } from "@/lib/settings";
+import {
+  DATA_DIR,
+  LAST_CLEANUP_MARKER,
+  assistantDir,
+  sessionDir,
+  sessionFile,
+} from "@/lib/paths";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
-const ARTIFACTS_DIR = path.join(DATA_DIR, "artifacts");
-const MARKER = path.join(DATA_DIR, ".last_cleanup");
+/**
+ * Session-scoped cleanup. A session is the unit of deletion: every
+ * upload, artifact, and data file it created lives under its own
+ * directory, so the sweep just rips the whole directory in one
+ * `rm -rf`. No cascade, no dedup, no artifact pinning — the session's
+ * own `pinned` flag decides whether it survives.
+ */
 
-// Resolved per-sweep from settings so the UI can change it live.
 async function currentTtlDays(): Promise<number> {
   try {
     const s = await readSettings();
@@ -21,14 +29,13 @@ async function currentTtlDays(): Promise<number> {
 const SWEEP_EVERY_MS = 24 * 60 * 60 * 1000;
 
 export type SweepCandidate = {
-  kind: "session" | "artifact";
+  kind: "session";
   id: string;
   title: string;
-  assistantId?: string;
+  assistantId: string;
   ageDays: number;
   sizeBytes: number;
-  /** "age" — over TTL; "cascade" — its session is being swept. */
-  reason: "age" | "cascade";
+  reason: "age";
 };
 
 export type SweepReport = {
@@ -62,22 +69,18 @@ async function readJsonlMeta(
   }
 }
 
-async function fileSize(p: string): Promise<number> {
-  try {
-    return (await fs.stat(p)).size;
-  } catch {
-    return 0;
-  }
-}
-
 async function dirSize(p: string): Promise<number> {
   try {
     let total = 0;
     const entries = await fs.readdir(p, { withFileTypes: true });
     for (const e of entries) {
-      const full = path.join(p, e.name);
+      const full = `${p}/${e.name}`;
       if (e.isDirectory()) total += await dirSize(full);
-      else total += await fileSize(full);
+      else {
+        try {
+          total += (await fs.stat(full)).size;
+        } catch {}
+      }
     }
     return total;
   } catch {
@@ -85,180 +88,62 @@ async function dirSize(p: string): Promise<number> {
   }
 }
 
-async function listSessionCandidates(
-  ttlMs: number,
-): Promise<SweepCandidate[]> {
-  const out: SweepCandidate[] = [];
-  if (!existsSync(SESSIONS_DIR)) return out;
-  for (const aid of await fs.readdir(SESSIONS_DIR)) {
-    const dir = path.join(SESSIONS_DIR, aid);
-    let stat;
-    try {
-      stat = await fs.stat(dir);
-    } catch {
-      continue;
-    }
-    if (!stat.isDirectory()) continue;
-    const files = (await fs.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
-    for (const f of files) {
-      const fp = path.join(dir, f);
-      const meta = await readJsonlMeta(fp);
-      if (!meta) continue;
-      const updatedAt = Number(meta.updatedAt ?? 0);
-      const pinned = !!meta.pinned;
-      const age = Date.now() - updatedAt;
-      if (pinned) continue;
-      if (age < ttlMs) continue;
-      out.push({
-        kind: "session",
-        id: String(meta.id ?? f.replace(/\.jsonl$/, "")),
-        title: String(meta.title ?? "Untitled"),
-        assistantId: aid,
-        ageDays: ageDays(updatedAt),
-        sizeBytes: await fileSize(fp),
-        reason: "age",
-      });
-    }
-  }
-  return out;
-}
-
-/**
- * For a set of session-ids about to be swept, find non-pinned artifacts
- * that reference those sessions — they get swept too, regardless of age.
- * Returns candidates deduped against any already-flagged artifact ids.
- */
-async function listCascadeArtifacts(
-  sessionIds: Set<string>,
-  alreadyFlagged: Set<string>,
-): Promise<SweepCandidate[]> {
-  const out: SweepCandidate[] = [];
-  if (!existsSync(ARTIFACTS_DIR) || sessionIds.size === 0) return out;
-  const entries = await fs.readdir(ARTIFACTS_DIR, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const id = entry.name;
-    if (alreadyFlagged.has(id)) continue;
-    const metaPath = path.join(ARTIFACTS_DIR, id, "meta.json");
-    if (!existsSync(metaPath)) continue;
-    try {
-      const meta = JSON.parse(await fs.readFile(metaPath, "utf8"));
-      if (meta.pinned) continue;
-      if (!meta.sessionId || !sessionIds.has(String(meta.sessionId))) continue;
-      const updatedAt = Number(meta.updatedAt ?? 0);
-      out.push({
-        kind: "artifact",
-        id,
-        title: String(meta.title ?? "Untitled"),
-        ageDays: ageDays(updatedAt),
-        sizeBytes: await dirSize(path.join(ARTIFACTS_DIR, id)),
-        reason: "cascade",
-      });
-    } catch {
-      continue;
-    }
-  }
-  return out;
-}
-
-async function listArtifactCandidates(
-  ttlMs: number,
-): Promise<SweepCandidate[]> {
-  const out: SweepCandidate[] = [];
-  if (!existsSync(ARTIFACTS_DIR)) return out;
-  const entries = await fs.readdir(ARTIFACTS_DIR, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const id = entry.name;
-    const metaPath = path.join(ARTIFACTS_DIR, id, "meta.json");
-    if (!existsSync(metaPath)) continue;
-    try {
-      const meta = JSON.parse(await fs.readFile(metaPath, "utf8"));
-      const updatedAt = Number(meta.updatedAt ?? 0);
-      const pinned = !!meta.pinned;
-      const age = Date.now() - updatedAt;
-      if (pinned) continue;
-      if (age < ttlMs) continue;
-      out.push({
-        kind: "artifact",
-        id,
-        title: String(meta.title ?? "Untitled"),
-        ageDays: ageDays(updatedAt),
-        sizeBytes: await dirSize(path.join(ARTIFACTS_DIR, id)),
-        reason: "age",
-      });
-    } catch {
-      continue;
-    }
-  }
-  return out;
-}
-
-async function countPinnedSessions(): Promise<number> {
-  if (!existsSync(SESSIONS_DIR)) return 0;
-  let n = 0;
-  for (const aid of await fs.readdir(SESSIONS_DIR)) {
-    const dir = path.join(SESSIONS_DIR, aid);
-    let stat;
-    try {
-      stat = await fs.stat(dir);
-    } catch {
-      continue;
-    }
-    if (!stat.isDirectory()) continue;
-    const files = (await fs.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
-    for (const f of files) {
-      const meta = await readJsonlMeta(path.join(dir, f));
-      if (meta?.pinned) n++;
-    }
-  }
-  return n;
-}
-
-async function countPinnedArtifacts(): Promise<number> {
-  if (!existsSync(ARTIFACTS_DIR)) return 0;
-  let n = 0;
-  const entries = await fs.readdir(ARTIFACTS_DIR, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const metaPath = path.join(ARTIFACTS_DIR, entry.name, "meta.json");
-    if (!existsSync(metaPath)) continue;
-    try {
-      const meta = JSON.parse(await fs.readFile(metaPath, "utf8"));
-      if (meta.pinned) n++;
-    } catch {
-      continue;
-    }
-  }
-  return n;
-}
-
 export async function previewSweep(): Promise<SweepReport> {
   const ttlDays = await currentTtlDays();
   const ttlMs = ttlDays * 24 * 60 * 60 * 1000;
-  const [sess, arts, pinS, pinA] = await Promise.all([
-    listSessionCandidates(ttlMs),
-    listArtifactCandidates(ttlMs),
-    countPinnedSessions(),
-    countPinnedArtifacts(),
-  ]);
-  // Cascade — any non-pinned artifact owned by a session being swept
-  // comes along, even if the artifact itself is fresh.
-  const sessionIds = new Set(sess.map((s) => s.id));
-  const flaggedArtifactIds = new Set(arts.map((a) => a.id));
-  const cascade = await listCascadeArtifacts(sessionIds, flaggedArtifactIds);
-  const all = [...sess, ...arts, ...cascade];
-  return {
-    candidates: all.sort((a, b) => {
-      // Show oldest first; cascaded artifacts grouped under their session
-      // conceptually, but simpler: sort by ageDays desc (cascade uses its
-      // own updatedAt, which could be fresh — they'll appear near the top
-      // of the "fresh" cluster but still in the list).
-      return b.ageDays - a.ageDays;
-    }),
-    pinnedSkipped: pinS + pinA,
-    ttlDays,
-  };
+  const candidates: SweepCandidate[] = [];
+  let pinnedSkipped = 0;
+  if (!existsSync(DATA_DIR)) {
+    return { candidates, pinnedSkipped: 0, ttlDays };
+  }
+  const now = Date.now();
+  const aEntries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+  for (const a of aEntries) {
+    if (!a.isDirectory()) continue;
+    const aid = a.name;
+    const aDir = assistantDir(aid);
+    let sEntries;
+    try {
+      sEntries = await fs.readdir(aDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const s of sEntries) {
+      if (!s.isDirectory()) continue;
+      const sid = s.name;
+      const jsonl = sessionFile(aid, sid);
+      if (!existsSync(jsonl)) continue;
+      let mtimeMs: number;
+      try {
+        mtimeMs = (await fs.stat(jsonl)).mtimeMs;
+      } catch {
+        continue;
+      }
+      // Cheap mtime pre-filter: meta.json-analog inside session.jsonl
+      // gets rewritten on every update, so mtime tracks updatedAt. Skip
+      // parsing for fresh sessions entirely.
+      if (now - mtimeMs < ttlMs) continue;
+      const meta = await readJsonlMeta(jsonl);
+      if (!meta) continue;
+      const updatedAt = Number(meta.updatedAt ?? mtimeMs);
+      if (now - updatedAt < ttlMs) continue;
+      if (meta.pinned) {
+        pinnedSkipped++;
+        continue;
+      }
+      candidates.push({
+        kind: "session",
+        id: String(meta.id ?? sid),
+        title: String(meta.title ?? "Untitled"),
+        assistantId: aid,
+        ageDays: ageDays(updatedAt),
+        sizeBytes: await dirSize(sessionDir(aid, sid)),
+        reason: "age",
+      });
+    }
+  }
+  candidates.sort((a, b) => b.ageDays - a.ageDays);
+  return { candidates, pinnedSkipped, ttlDays };
 }
 
 export async function runSweep(): Promise<{
@@ -270,24 +155,15 @@ export async function runSweep(): Promise<{
 }> {
   const report = await previewSweep();
   let deletedSessions = 0;
-  let deletedArtifacts = 0;
   let freedBytes = 0;
   for (const c of report.candidates) {
     try {
-      if (c.kind === "session" && c.assistantId) {
-        const p = path.join(
-          SESSIONS_DIR,
-          c.assistantId,
-          `${c.id}.jsonl`,
-        );
-        await fs.rm(p, { force: true });
+      const dir = sessionDir(c.assistantId, c.id);
+      if (existsSync(dir)) {
+        await fs.rm(dir, { recursive: true, force: true });
         deletedSessions++;
-      } else if (c.kind === "artifact") {
-        const p = path.join(ARTIFACTS_DIR, c.id);
-        if (existsSync(p)) await fs.rm(p, { recursive: true, force: true });
-        deletedArtifacts++;
+        freedBytes += c.sizeBytes;
       }
-      freedBytes += c.sizeBytes;
     } catch {
       // skip the individual failure; continue sweeping
     }
@@ -295,7 +171,10 @@ export async function runSweep(): Promise<{
   await touchMarker();
   return {
     deletedSessions,
-    deletedArtifacts,
+    // Reported as 0 since artifacts are folded into session dirs now.
+    // The "Last run: N session(s), M artifact(s), X freed" UI still
+    // renders — sessions carry their artifacts with them.
+    deletedArtifacts: 0,
     freedBytes,
     pinnedSkipped: report.pinnedSkipped,
     ttlDays: report.ttlDays,
@@ -304,7 +183,7 @@ export async function runSweep(): Promise<{
 
 async function readMarker(): Promise<number> {
   try {
-    const raw = await fs.readFile(MARKER, "utf8");
+    const raw = await fs.readFile(LAST_CLEANUP_MARKER, "utf8");
     return Number(raw.trim()) || 0;
   } catch {
     return 0;
@@ -314,7 +193,7 @@ async function readMarker(): Promise<number> {
 async function touchMarker(): Promise<void> {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
-    await fs.writeFile(MARKER, String(Date.now()));
+    await fs.writeFile(LAST_CLEANUP_MARKER, String(Date.now()));
   } catch {
     // Non-fatal — sweep just runs again next check.
   }
@@ -330,7 +209,6 @@ export async function maybeSweep(): Promise<void> {
   if (sweepInFlight) return;
   const last = await readMarker();
   if (Date.now() - last < SWEEP_EVERY_MS) return;
-  // Mark in-flight *before* running so concurrent calls bail early.
   sweepInFlight = true;
   setImmediate(async () => {
     try {

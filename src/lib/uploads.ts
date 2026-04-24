@@ -5,8 +5,13 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { OfficeParser } from "officeparser";
 import type { OfficeContentNode } from "officeparser";
-
-const UPLOADS_DIR = path.join(process.cwd(), "data", "uploads");
+import {
+  attachmentUrl,
+  isValidFilename,
+  isValidIdSegment,
+  uploadFile,
+  uploadsDir,
+} from "@/lib/paths";
 
 // Optional local Python extractor. Users who've run
 // `npm run setup:python` get a venv at python/.venv with the
@@ -74,8 +79,18 @@ const MIME_BY_EXT: Record<string, string> = {
 
 export type UploadKind = "image" | "document";
 
-export async function ensureUploadsDir() {
-  await fs.mkdir(UPLOADS_DIR, { recursive: true });
+export type UploadScope = {
+  assistantId: string;
+  sessionId: string;
+};
+
+function validateScope(scope: UploadScope): void {
+  if (!isValidIdSegment(scope.assistantId)) {
+    throw new Error(`invalid assistantId: ${scope.assistantId}`);
+  }
+  if (!isValidIdSegment(scope.sessionId)) {
+    throw new Error(`invalid sessionId: ${scope.sessionId}`);
+  }
 }
 
 function extOf(mimeType: string, fallbackName?: string): {
@@ -115,6 +130,24 @@ function nodeText(node: OfficeContentNode): string {
     }
   }
   return pieces.join(node.type === "cell" ? " | " : "\n");
+}
+
+/** Scan the tail of a PDF for `/Encrypt` in the trailer dictionary.
+ *  Any encrypted PDF includes this reference; checking explicitly
+ *  lets us raise PdfEncryptedError BEFORE officeparser silently
+ *  returns empty text on a pdfjs-dist that didn't throw. Reads just
+ *  the last ~8KB since the trailer lives at the end. */
+async function isPdfEncrypted(srcPath: string): Promise<boolean> {
+  const fh = await fs.open(srcPath, "r");
+  try {
+    const { size } = await fh.stat();
+    const windowSize = Math.min(size, 8192);
+    const buf = Buffer.alloc(windowSize);
+    await fh.read(buf, 0, windowSize, Math.max(0, size - windowSize));
+    return buf.toString("latin1").includes("/Encrypt");
+  } finally {
+    await fh.close();
+  }
 }
 
 /** Pure-JS fallback: officeparser covers docx/xlsx/pptx/pdf/odt/ods
@@ -207,13 +240,15 @@ async function extractDocumentText(
     if (hasPythonExtractor()) {
       raw = await extractWithPython(srcPath, password);
     } else {
+      if (ext === "pdf" && (await isPdfEncrypted(srcPath))) {
+        throw new PdfEncryptedError(
+          "Encrypted PDF — run `npm run setup:python` to enable password-based extraction.",
+          false,
+        );
+      }
       try {
         raw = await extractWithOfficeparser(srcPath);
       } catch (e) {
-        // Heuristic: pdfjs throws a PasswordException / generic Error
-        // when asked to read an encrypted PDF. Surface as our typed
-        // error so the Composer's password prompt still appears, even
-        // though we can't actually satisfy it without Python.
         if (
           ext === "pdf" &&
           /password|encrypt/i.test((e as Error).message)
@@ -250,16 +285,23 @@ export type SavedUpload = {
   textPreview?: string;
 };
 
+/** Save `buffer` into `.data/<aid>/<sid>/uploads/<hash>.<ext>`. Each
+ *  session owns its uploads; the same file uploaded in two different
+ *  sessions lives twice on disk (by design — sessions delete cleanly). */
 export async function saveUpload(
+  scope: UploadScope,
   buffer: Buffer,
   mimeType: string,
   originalName?: string,
   password?: string,
 ): Promise<SavedUpload> {
-  await ensureUploadsDir();
+  validateScope(scope);
   const meta = extOf(mimeType, originalName);
   if (!meta) throw new Error(`unsupported mime type: ${mimeType}`);
   const { ext, kind } = meta;
+
+  const dir = uploadsDir(scope.assistantId, scope.sessionId);
+  await fs.mkdir(dir, { recursive: true });
 
   const hash = crypto
     .createHash("sha256")
@@ -267,7 +309,7 @@ export async function saveUpload(
     .digest("hex")
     .slice(0, 16);
   const filename = `${hash}.${ext}`;
-  const full = path.join(UPLOADS_DIR, filename);
+  const full = uploadFile(scope.assistantId, scope.sessionId, filename);
   if (!existsSync(full)) {
     await fs.writeFile(full, buffer);
   }
@@ -276,7 +318,11 @@ export async function saveUpload(
   let textPreview: string | undefined;
   if (kind === "document") {
     const sidecarName = `${filename}.txt`;
-    const sidecarPath = path.join(UPLOADS_DIR, sidecarName);
+    const sidecarPath = uploadFile(
+      scope.assistantId,
+      scope.sessionId,
+      sidecarName,
+    );
     if (!existsSync(sidecarPath)) {
       const text = await extractDocumentText(full, ext, password);
       await fs.writeFile(sidecarPath, text, "utf8");
@@ -292,7 +338,7 @@ export async function saveUpload(
     ext,
     mimeType: MIME_BY_EXT[ext] ?? mimeType,
     bytes: buffer.byteLength,
-    url: `/api/attachment/${filename}`,
+    url: attachmentUrl(scope.assistantId, scope.sessionId, filename),
     kind,
     ...(textFilename ? { textFilename } : {}),
     ...(textPreview !== undefined ? { textPreview } : {}),
@@ -300,24 +346,26 @@ export async function saveUpload(
 }
 
 export async function readUpload(
+  scope: UploadScope,
   filename: string,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
-  const safe = filename.replace(/[^a-z0-9._-]/gi, "");
-  if (!safe || safe !== filename) return null;
-  const full = path.join(UPLOADS_DIR, safe);
+  validateScope(scope);
+  if (!isValidFilename(filename)) return null;
+  const full = uploadFile(scope.assistantId, scope.sessionId, filename);
   if (!existsSync(full)) return null;
   const buffer = await fs.readFile(full);
-  const ext = path.extname(safe).slice(1).toLowerCase();
+  const ext = path.extname(filename).slice(1).toLowerCase();
   const mimeType = MIME_BY_EXT[ext] ?? "application/octet-stream";
   return { buffer, mimeType };
 }
 
 export async function readUploadText(
+  scope: UploadScope,
   filename: string,
 ): Promise<string | null> {
-  const safe = filename.replace(/[^a-z0-9._-]/gi, "");
-  if (!safe || safe !== filename) return null;
-  const full = path.join(UPLOADS_DIR, safe);
+  validateScope(scope);
+  if (!isValidFilename(filename)) return null;
+  const full = uploadFile(scope.assistantId, scope.sessionId, filename);
   if (!existsSync(full)) return null;
   return await fs.readFile(full, "utf8");
 }

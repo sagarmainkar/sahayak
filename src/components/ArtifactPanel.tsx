@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, RefreshCw, Code2, Download, Copy, Maximize2, Minimize2, Check,
-  Wand2, Pin, Camera, Loader2,
+  Wand2, Camera, Loader2,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { useArtifactPanel } from "./ArtifactPanelContext";
@@ -23,7 +23,12 @@ export function ArtifactPanel({
   onFixRequest,
   onAttachScreenshot,
 }: Props = {}) {
-  const { openId, refreshKey: externalRefreshKey, close } = useArtifactPanel();
+  const {
+    openId,
+    scope,
+    refreshKey: externalRefreshKey,
+    close,
+  } = useArtifactPanel();
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -110,10 +115,14 @@ export function ArtifactPanel({
     }
     // Reset error state when the panel's artifact changes or refreshes.
     setRuntimeError(null);
-    fetch(`/api/artifacts/${openId}`, { cache: "no-store" })
+    if (!scope) return;
+    fetch(
+      `/api/artifacts/${encodeURIComponent(scope.assistantId)}/${encodeURIComponent(scope.sessionId)}/${encodeURIComponent(openId)}`,
+      { cache: "no-store" },
+    )
       .then((r) => r.json())
       .then((d: { artifact: Artifact }) => setArtifact(d.artifact));
-  }, [openId, refreshKey]);
+  }, [openId, refreshKey, scope]);
 
   // Bridge: iframe → parent → /api/artifact-data
   useEffect(() => {
@@ -138,8 +147,10 @@ export function ArtifactPanel({
         setRuntimeError(String(d.message ?? "unknown runtime error"));
         return;
       }
-      if (d.type === "fetch_data" && openId && d.filename) {
-        fetch(`/api/artifact-data/${openId}/${d.filename}`)
+      if (d.type === "fetch_data" && openId && d.filename && scope) {
+        fetch(
+          `/api/artifact-data/${encodeURIComponent(scope.assistantId)}/${encodeURIComponent(scope.sessionId)}/${encodeURIComponent(openId)}/${encodeURIComponent(d.filename)}`,
+        )
           .then(async (r) => {
             if (!r.ok) throw new Error(`status ${r.status}`);
             const ct = r.headers.get("content-type") ?? "";
@@ -179,7 +190,7 @@ export function ArtifactPanel({
     }
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [openId]);
+  }, [openId, scope]);
 
   // When both iframe + artifact are ready, send source (JSX path only —
   // HTML docs render via `srcdoc` and don't need the postMessage handshake).
@@ -192,20 +203,10 @@ export function ArtifactPanel({
     );
   }, [iframeReady, artifact, isHtmlDoc]);
 
-  async function togglePin() {
-    if (!artifact) return;
-    const nextPinned = !artifact.pinned;
-    setArtifact({ ...artifact, pinned: nextPinned });
-    try {
-      await fetch(`/api/artifacts/${artifact.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pinned: nextPinned }),
-      });
-    } catch {
-      setArtifact({ ...artifact, pinned: !nextPinned });
-    }
-  }
+  // Artifact pinning was removed when the session became the unit of
+  // retention — pin the session instead and every artifact inside
+  // survives the sweep. Keeping a stub so nothing references undefined.
+  async function togglePin() {}
 
   function reload() {
     setIframeReady(false);
@@ -290,25 +291,8 @@ export function ArtifactPanel({
             Ask to fix
           </button>
         )}
-        <button
-          onClick={togglePin}
-          className={cn(
-            "tt rounded p-1 hover:bg-bg-muted",
-            artifact?.pinned ? "text-accent" : "text-fg-muted hover:text-fg",
-          )}
-          data-tip={
-            artifact?.pinned
-              ? "Pinned — protected from auto-cleanup"
-              : "Pin (protect from auto-cleanup)"
-          }
-        >
-          <Pin
-            className={cn(
-              "h-3.5 w-3.5",
-              artifact?.pinned && "fill-accent",
-            )}
-          />
-        </button>
+        {/* Pin button removed: artifacts are scoped to the session now,
+            so pinning happens at the session level in the sidebar. */}
         {onAttachScreenshot && iframeReady && !runtimeError && (
           <button
             onClick={snapScreenshot}

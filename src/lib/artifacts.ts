@@ -1,13 +1,21 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import { nanoid } from "nanoid";
 import type { Artifact } from "@/lib/types";
+import {
+  artifactDir,
+  artifactsDir,
+  isValidFilename,
+  isValidIdSegment,
+} from "@/lib/paths";
 
-const ARTIFACTS_DIR = path.join(process.cwd(), "data", "artifacts");
+export type ArtifactScope = {
+  assistantId: string;
+  sessionId: string;
+};
 
-function slugify(s: string) {
+function slugify(s: string): string {
   return (s || "artifact")
     .toLowerCase()
     .replace(/[^\w\s-]/g, "")
@@ -17,149 +25,164 @@ function slugify(s: string) {
     .slice(0, 40) || "artifact";
 }
 
-async function ensureDir(p: string) {
-  await fs.mkdir(p, { recursive: true });
-}
-
-function dirFor(id: string) {
-  // Safety: reject traversal
-  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(id)) throw new Error("bad artifact id");
-  return path.join(ARTIFACTS_DIR, id);
-}
-
-function metaPath(id: string) {
-  return path.join(dirFor(id), "meta.json");
-}
-function sourcePath(id: string) {
-  return path.join(dirFor(id), "source.jsx");
-}
-function dataFile(id: string, filename: string) {
-  if (!/^[a-zA-Z0-9._-]+$/.test(filename)) throw new Error("bad filename");
-  return path.join(dirFor(id), "files", filename);
-}
-
-function hashSource(s: string): string {
-  return crypto.createHash("sha256").update(s).digest("hex").slice(0, 12);
-}
-
-// Index of source-hash → id, so re-POSTs of the same code return the same id.
-const HASH_INDEX = path.join(ARTIFACTS_DIR, "_by_hash.json");
-
-async function readHashIndex(): Promise<Record<string, string>> {
-  if (!existsSync(HASH_INDEX)) return {};
-  try {
-    return JSON.parse(await fs.readFile(HASH_INDEX, "utf8"));
-  } catch {
-    return {};
+function assertScope(scope: ArtifactScope): void {
+  if (!isValidIdSegment(scope.assistantId)) {
+    throw new Error(`invalid assistantId: ${scope.assistantId}`);
+  }
+  if (!isValidIdSegment(scope.sessionId)) {
+    throw new Error(`invalid sessionId: ${scope.sessionId}`);
   }
 }
 
-async function writeHashIndex(idx: Record<string, string>) {
-  await ensureDir(ARTIFACTS_DIR);
-  await fs.writeFile(HASH_INDEX, JSON.stringify(idx, null, 2));
+function assertArtifactId(id: string): void {
+  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(id)) {
+    throw new Error(`bad artifact id: ${id}`);
+  }
 }
 
-export async function createArtifact(input: {
-  id?: string;
-  title: string;
-  source: string;
-  sessionId?: string | null;
-  assistantId?: string | null;
-}): Promise<Artifact> {
-  const h = hashSource(input.source);
-  const idx = await readHashIndex();
+function metaPath(scope: ArtifactScope, id: string): string {
+  return path.join(artifactDir(scope.assistantId, scope.sessionId, id), "meta.json");
+}
+function sourcePath(scope: ArtifactScope, id: string): string {
+  return path.join(artifactDir(scope.assistantId, scope.sessionId, id), "source.jsx");
+}
+function dataFilePath(
+  scope: ArtifactScope,
+  id: string,
+  filename: string,
+): string {
+  if (!isValidFilename(filename)) throw new Error("bad filename");
+  return path.join(
+    artifactDir(scope.assistantId, scope.sessionId, id),
+    "files",
+    filename,
+  );
+}
 
-  // Dedup: if the source is identical AND we already have an id for it,
-  // return that one (just refreshing title/session).
-  let id = input.id ?? idx[h];
-  if (!id) {
-    id = `${slugify(input.title)}-${nanoid(8).replace(/[^a-z0-9]/gi, "").toLowerCase()}`;
-    idx[h] = id;
-    await writeHashIndex(idx);
+/** Reserve an artifact dir for this session. No cross-session dedup:
+ *  the same source in two sessions lives twice on disk — that's fine
+ *  because sessions are the unit of deletion. */
+export async function createArtifact(
+  scope: ArtifactScope,
+  input: {
+    id?: string;
+    title: string;
+    source: string;
+  },
+): Promise<Artifact> {
+  assertScope(scope);
+  let id = input.id;
+  if (id) {
+    assertArtifactId(id);
+  } else {
+    id = `${slugify(input.title)}-${nanoid(8)
+      .replace(/[^a-z0-9]/gi, "")
+      .toLowerCase()}`;
   }
+  const dir = artifactDir(scope.assistantId, scope.sessionId, id);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.mkdir(path.join(dir, "files"), { recursive: true });
 
-  const d = dirFor(id);
-  await ensureDir(d);
-  await ensureDir(path.join(d, "files"));
   const now = Date.now();
-  const existing = await readMeta(id);
+  const existing = await readMeta(scope, id);
   const artifact: Artifact = {
     id,
     title: input.title || existing?.title || "Untitled artifact",
-    sessionId: input.sessionId ?? existing?.sessionId ?? null,
-    assistantId: input.assistantId ?? existing?.assistantId ?? null,
+    sessionId: scope.sessionId,
+    assistantId: scope.assistantId,
     source: input.source,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
-  await fs.writeFile(sourcePath(id), input.source, "utf8");
+  await fs.writeFile(sourcePath(scope, id), input.source, "utf8");
   const meta = { ...artifact };
   delete (meta as Partial<Artifact>).source;
-  await fs.writeFile(metaPath(id), JSON.stringify(meta, null, 2));
+  await fs.writeFile(metaPath(scope, id), JSON.stringify(meta, null, 2));
   return artifact;
 }
 
-async function readMeta(id: string): Promise<Artifact | null> {
-  const mp = metaPath(id);
+async function readMeta(
+  scope: ArtifactScope,
+  id: string,
+): Promise<Artifact | null> {
+  const mp = metaPath(scope, id);
   if (!existsSync(mp)) return null;
   const meta = JSON.parse(await fs.readFile(mp, "utf8"));
-  const sp = sourcePath(id);
+  const sp = sourcePath(scope, id);
   const source = existsSync(sp) ? await fs.readFile(sp, "utf8") : "";
   return { ...meta, source };
 }
 
 export async function updateArtifact(
+  scope: ArtifactScope,
   id: string,
-  patch: { pinned?: boolean; title?: string },
+  patch: { title?: string },
 ): Promise<Artifact | null> {
-  const cur = await readMeta(id);
+  assertScope(scope);
+  assertArtifactId(id);
+  const cur = await readMeta(scope, id);
   if (!cur) return null;
   const next: Artifact = {
     ...cur,
-    ...(patch.pinned !== undefined ? { pinned: patch.pinned } : {}),
     ...(patch.title !== undefined ? { title: patch.title } : {}),
     updatedAt: Date.now(),
   };
   const meta = { ...next };
   delete (meta as Partial<Artifact>).source;
-  await fs.writeFile(metaPath(id), JSON.stringify(meta, null, 2));
+  await fs.writeFile(metaPath(scope, id), JSON.stringify(meta, null, 2));
   return next;
 }
 
-export async function getArtifact(id: string): Promise<Artifact | null> {
-  return readMeta(id);
+export async function getArtifact(
+  scope: ArtifactScope,
+  id: string,
+): Promise<Artifact | null> {
+  assertScope(scope);
+  try {
+    assertArtifactId(id);
+  } catch {
+    return null;
+  }
+  return readMeta(scope, id);
 }
 
-export async function listArtifacts(opts?: {
-  sessionId?: string;
-}): Promise<Artifact[]> {
-  if (!existsSync(ARTIFACTS_DIR)) return [];
-  const entries = await fs.readdir(ARTIFACTS_DIR, { withFileTypes: true });
+export async function listArtifacts(
+  scope: ArtifactScope,
+): Promise<Artifact[]> {
+  assertScope(scope);
+  const root = artifactsDir(scope.assistantId, scope.sessionId);
+  if (!existsSync(root)) return [];
+  const entries = await fs.readdir(root, { withFileTypes: true });
   const out: Artifact[] = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue; // skip _by_hash.json, stray files
+    if (!entry.isDirectory()) continue;
     const id = entry.name;
-    if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(id)) continue; // only valid ids
+    if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(id)) continue;
     let m: Artifact | null = null;
     try {
-      m = await readMeta(id);
+      m = await readMeta(scope, id);
     } catch {
       continue;
     }
-    if (!m) continue;
-    if (opts?.sessionId && m.sessionId !== opts.sessionId) continue;
-    out.push(m);
+    if (m) out.push(m);
   }
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function readDataFile(
+  scope: ArtifactScope,
   id: string,
   filename: string,
 ): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  assertScope(scope);
+  try {
+    assertArtifactId(id);
+  } catch {
+    return null;
+  }
   let p: string;
   try {
-    p = dataFile(id, filename);
+    p = dataFilePath(scope, id, filename);
   } catch {
     return null;
   }
@@ -183,14 +206,29 @@ export async function readDataFile(
   return { buffer, mimeType: mt };
 }
 
-export async function deleteArtifact(id: string) {
+export async function deleteArtifact(
+  scope: ArtifactScope,
+  id: string,
+): Promise<void> {
+  assertScope(scope);
   try {
-    const d = dirFor(id);
-    if (existsSync(d)) await fs.rm(d, { recursive: true, force: true });
-  } catch {}
+    assertArtifactId(id);
+  } catch {
+    return;
+  }
+  const d = artifactDir(scope.assistantId, scope.sessionId, id);
+  if (existsSync(d)) await fs.rm(d, { recursive: true, force: true });
 }
 
-// Path the model can use via write_file to place data for an artifact.
-export function artifactDataPath(id: string, filename: string) {
-  return dataFile(id, filename);
+/** Path the `artifact_write_file` tool uses to drop data into the
+ *  artifact's `files/` subtree. Scoped to session so two sessions'
+ *  artifacts can't collide. */
+export function artifactDataPath(
+  scope: ArtifactScope,
+  id: string,
+  filename: string,
+): string {
+  assertScope(scope);
+  assertArtifactId(id);
+  return dataFilePath(scope, id, filename);
 }

@@ -11,8 +11,14 @@ import { executeCommand } from "./shell";
 import { webSearch, webFetch } from "./web";
 import { artifactCreate, artifactWriteFile } from "./artifact";
 import { remember, recallMemory, listAllMemories } from "./memory";
+import { gmailSearch, gmailRead } from "./gmail";
 import { callMcpTool, getAllMcpTools } from "@/lib/mcp/registry";
 
+/**
+ * User-facing tools. Surfaced in the assistant editor's tool picker,
+ * toggleable per-assistant, gated by HITL by default. `publicList()`
+ * returns only these.
+ */
 export const ALL_TOOLS: ToolSpec[] = [
   readFile,
   writeFile,
@@ -25,13 +31,25 @@ export const ALL_TOOLS: ToolSpec[] = [
   webFetch,
   artifactCreate,
   artifactWriteFile,
-  remember,
-  recallMemory,
-  listAllMemories,
+  gmailSearch,
+  gmailRead,
 ];
 
+/**
+ * Implicit tools — always available to the model, never shown in the
+ * picker, never HITL-gated. Used for cross-session memory: the model
+ * can stash facts/preferences/procedural notes and recall them on its
+ * own without the user having to enable or approve each call. The
+ * tool-call + tool-result still stream to the UI so the user can see
+ * what got saved/recalled.
+ */
+const IMPLICIT_TOOLS: ToolSpec[] = [remember, recallMemory, listAllMemories];
+
+/** Set for O(1) "is this an implicit tool?" checks in HITL gates. */
+export const IMPLICIT_TOOL_NAMES = new Set(IMPLICIT_TOOLS.map((t) => t.name));
+
 export const TOOLS_BY_NAME = Object.fromEntries(
-  ALL_TOOLS.map((t) => [t.name, t]),
+  [...ALL_TOOLS, ...IMPLICIT_TOOLS].map((t) => [t.name, t]),
 );
 
 /** Wrap an MCP tool discovery record into a Sahayak ToolSpec so both
@@ -75,6 +93,25 @@ export async function resolveTool(name: string): Promise<ToolSpec | null> {
   }
 }
 
+/** Merge caller's enabled list with implicit tools, dedup. */
+function withImplicit(enabled: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const n of enabled) {
+    if (!seen.has(n)) {
+      seen.add(n);
+      out.push(n);
+    }
+  }
+  for (const t of IMPLICIT_TOOLS) {
+    if (!seen.has(t.name)) {
+      seen.add(t.name);
+      out.push(t.name);
+    }
+  }
+  return out;
+}
+
 /** All tool specs currently available (static + live MCP). Async
  *  because MCP servers are stdio-spawned lazily. */
 export async function allToolSpecs(): Promise<ToolSpec[]> {
@@ -85,11 +122,12 @@ export async function allToolSpecs(): Promise<ToolSpec[]> {
   } catch {
     // A broken server shouldn't block native tool discovery.
   }
-  return [...ALL_TOOLS, ...mcp];
+  return [...ALL_TOOLS, ...IMPLICIT_TOOLS, ...mcp];
 }
 
 export async function toolsForOllama(enabled: string[]) {
-  const specs = await Promise.all(enabled.map((n) => resolveTool(n)));
+  const names = withImplicit(enabled);
+  const specs = await Promise.all(names.map((n) => resolveTool(n)));
   return specs
     .filter((t): t is ToolSpec => !!t)
     .map((t) => ({
@@ -102,13 +140,24 @@ export async function toolsForOllama(enabled: string[]) {
     }));
 }
 
+/** The tool picker (assistant editor, settings UI) lists only
+ *  user-facing + MCP-discovered tools. Implicit memory tools are
+ *  deliberately hidden — they're always available regardless. */
 export async function publicList() {
-  const specs = await allToolSpecs();
-  return specs.map((t) => ({
+  let mcp: ToolSpec[] = [];
+  try {
+    const discovered = await getAllMcpTools();
+    mcp = discovered.map(mcpToolAsSpec);
+  } catch {}
+  return [...ALL_TOOLS, ...mcp].map((t) => ({
     name: t.name,
     group: t.group,
     description: t.description,
   }));
 }
+
+/** Expose the implicit-merge helper to chat loops so they can build
+ *  the `enabled` list with memory tools appended. */
+export { withImplicit };
 
 export type { ToolSpec };

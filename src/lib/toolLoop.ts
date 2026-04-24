@@ -1,10 +1,16 @@
 import { nanoid } from "nanoid";
 import { OLLAMA_URL } from "@/lib/ollama";
-import { ALL_TOOLS, resolveTool, toolsForOllama } from "@/lib/tools";
-import { readUpload, readUploadText } from "@/lib/uploads";
+import {
+  ALL_TOOLS,
+  IMPLICIT_TOOL_NAMES,
+  resolveTool,
+  toolsForOllama,
+} from "@/lib/tools";
+import { readUpload, readUploadText, type UploadScope } from "@/lib/uploads";
 import { REACT_ARTIFACT_INSTRUCTIONS } from "@/lib/store";
 import { setPaused, type PausedLoop } from "@/lib/approvalStore";
 import type { MsgAttachment } from "@/lib/types";
+import type { ToolContext } from "@/lib/tools/types";
 
 // Gate every tool by default for consistency — users can "approve for
 // session" to skip the gate on subsequent calls in the same session.
@@ -34,11 +40,14 @@ type OllamaMsg = {
   images?: string[];
 };
 
-async function attachmentToBase64(a: MsgAttachment): Promise<string | null> {
+async function attachmentToBase64(
+  scope: UploadScope,
+  a: MsgAttachment,
+): Promise<string | null> {
   if (a.type !== "image") return null;
   if (a.data) return a.data;
   if (a.filename) {
-    const loaded = await readUpload(a.filename);
+    const loaded = await readUpload(scope, a.filename);
     if (!loaded) return null;
     return loaded.buffer.toString("base64");
   }
@@ -47,6 +56,7 @@ async function attachmentToBase64(a: MsgAttachment): Promise<string | null> {
 
 export async function toOllamaMessages(
   messages: ClientMsg[],
+  scope: UploadScope,
   system?: string,
 ): Promise<OllamaMsg[]> {
   const out: OllamaMsg[] = [];
@@ -67,9 +77,9 @@ export async function toOllamaMessages(
       const docChunks: string[] = [];
       for (const a of m.attachments) {
         if (a.type === "image") {
-          imgB64s.push(await attachmentToBase64(a));
+          imgB64s.push(await attachmentToBase64(scope, a));
         } else if (a.type === "document") {
-          const text = await readUploadText(a.textFilename);
+          const text = await readUploadText(scope, a.textFilename);
           if (!text) continue;
           const label = a.originalName ?? a.filename;
           docChunks.push(
@@ -274,7 +284,12 @@ export async function runToolLoop(
         // bypass. The old requireApproval "closed list" approach let
         // MCP tools (dynamically discovered, never added to the list)
         // slip past unchecked — a HITL hole this closes.
-        const preApproved = state.autoApproveTools.includes(tc.name);
+        // Implicit tools (memory: remember/recall/list) bypass HITL
+        // entirely — they're invisible infrastructure, not user-driven
+        // actions, and the user never enabled them in the picker.
+        const preApproved =
+          IMPLICIT_TOOL_NAMES.has(tc.name) ||
+          state.autoApproveTools.includes(tc.name);
 
         if (nextDecision === undefined && !preApproved) {
           const token = nanoid(16);
@@ -318,7 +333,11 @@ export async function runToolLoop(
             };
           } else {
             try {
-              result = await spec.handler(tc.arguments);
+              const ctx: ToolContext = {
+                assistantId: state.assistantId,
+                sessionId: state.sessionId,
+              };
+              result = await spec.handler(tc.arguments, ctx);
             } catch (e) {
               result = {
                 ok: false,

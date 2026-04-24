@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-
-const SETTINGS_FILE = path.join(process.cwd(), "data", "settings.json");
+import { SETTINGS_FILE } from "@/lib/paths";
 
 export type TtsBackend = "soprano" | "polly";
 
@@ -14,6 +13,11 @@ export type Settings = {
   cleanup: {
     /** Age (in days) after which non-pinned sessions/artifacts are swept. */
     ttlDays: number;
+  };
+  ollama: {
+    /** Bearer token for ollama.com's hosted web_search / web_fetch.
+     *  Empty string = disabled; the tools return a friendly error. */
+    apiKey: string;
   };
 };
 
@@ -28,6 +32,9 @@ const DEFAULTS: Settings = {
   },
   cleanup: {
     ttlDays: DEFAULT_TTL_DAYS,
+  },
+  ollama: {
+    apiKey: "",
   },
 };
 
@@ -57,6 +64,12 @@ export async function readSettings(): Promise<Settings> {
             ? clampTtl(parsed.cleanup.ttlDays)
             : DEFAULTS.cleanup.ttlDays,
       },
+      ollama: {
+        apiKey:
+          typeof parsed.ollama?.apiKey === "string"
+            ? parsed.ollama.apiKey.trim()
+            : DEFAULTS.ollama.apiKey,
+      },
     };
   } catch {
     return DEFAULTS;
@@ -70,6 +83,9 @@ export type SettingsPatch = {
   };
   cleanup?: {
     ttlDays?: number;
+  };
+  ollama?: {
+    apiKey?: string;
   };
 };
 
@@ -88,6 +104,12 @@ export async function writeSettings(patch: SettingsPatch): Promise<Settings> {
         patch.cleanup?.ttlDays !== undefined
           ? clampTtl(patch.cleanup.ttlDays)
           : cur.cleanup.ttlDays,
+    },
+    ollama: {
+      apiKey:
+        typeof patch.ollama?.apiKey === "string"
+          ? patch.ollama.apiKey.trim()
+          : cur.ollama.apiKey,
     },
   };
   await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true });

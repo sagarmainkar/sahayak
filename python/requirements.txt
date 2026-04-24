@@ -2,3 +2,7 @@ python-docx>=1.1
 openpyxl>=3.1
 python-pptx>=1.0
 pypdf>=4.3
+# Optional pypdf dep — required for AES-encrypted PDFs (most modern
+# password-protected PDFs). Without it, pypdf raises
+# "cryptography>=3.1 is required for AES algorithm" when decrypting.
+cryptography>=3.1

@@ -38,6 +38,9 @@ export function ArtifactBlock({
   onAutoFix,
 }: {
   source: string;
+  /** Required — the server won't create an artifact without an owning
+   *  session. May be null/undefined while the Chat is still resolving
+   *  the session id; we render a pending state until it's available. */
   sessionId?: string | null;
   assistantId?: string | null;
   /** Called when the server rejects the artifact's JSX as invalid.
@@ -65,6 +68,11 @@ export function ArtifactBlock({
       return;
     }
 
+    // Scope is required by the server — don't POST until we have both
+    // ids. The parent (Chat) resolves sessionId as soon as the first
+    // user turn fires, so this is only a brief pending state.
+    if (!sessionId || !assistantId) return;
+
     (async () => {
       try {
         const r = await fetch("/api/artifacts", {
@@ -74,8 +82,8 @@ export function ArtifactBlock({
             id: hdr.id,
             title,
             source,
-            sessionId: sessionId ?? null,
-            assistantId: assistantId ?? null,
+            sessionId,
+            assistantId,
           }),
         });
         if (r.status === 422) {
@@ -169,5 +177,12 @@ export function ArtifactBlock({
       </div>
     );
   }
-  return <ArtifactCard id={state.id} title={state.title} />;
+  return (
+    <ArtifactCard
+      id={state.id}
+      title={state.title}
+      assistantId={assistantId!}
+      sessionId={sessionId!}
+    />
+  );
 }

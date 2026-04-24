@@ -260,12 +260,21 @@ export function SettingsPage() {
           <button
             onClick={runCleanup}
             disabled={
-              cleanupRunning || !cleanup || cleanup.candidates.length === 0
+              cleanupRunning ||
+              cleanupLoading ||
+              !cleanup ||
+              cleanup.candidates.length === 0
             }
             className="flex items-center gap-1.5 rounded-md bg-red-500/90 px-3 py-1.5 font-sans text-[12px] font-medium text-white hover:bg-red-500 disabled:opacity-40"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            {cleanupRunning ? "Cleaning…" : "Clean now"}
+            {cleanupRunning
+              ? "Cleaning…"
+              : cleanupLoading
+                ? "Checking…"
+                : !cleanup || cleanup.candidates.length === 0
+                  ? "Nothing to clean"
+                  : "Clean now"}
           </button>
           {cleanupLast && (
             <span className="font-sans text-[11px] text-fg-muted">
@@ -278,8 +287,103 @@ export function SettingsPage() {
         </div>
       </section>
 
+      <OllamaKeySection
+        settings={settings}
+        patchSettings={patchSettings}
+      />
+
       <McpServersSection />
     </main>
+  );
+}
+
+function OllamaKeySection({
+  settings,
+  patchSettings,
+}: {
+  settings: Settings | null;
+  patchSettings: (patch: Partial<Settings>) => Promise<void>;
+}) {
+  const [reveal, setReveal] = useState(false);
+  // Local draft so typing doesn't wipe the saved value on re-render
+  // and we can compare against what's actually on disk when saving.
+  const saved = settings?.ollama.apiKey ?? "";
+  const [draft, setDraft] = useState(saved);
+  const [savedState, setSavedState] = useState<
+    "idle" | "saving" | "done"
+  >("idle");
+  // If settings loads/reloads from the server and the draft is still
+  // the empty default, adopt the server value. Don't clobber user edits.
+  useEffect(() => {
+    if (draft === "") setDraft(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved]);
+
+  async function save() {
+    const v = draft.trim();
+    if (v === saved) return;
+    setSavedState("saving");
+    await patchSettings({ ollama: { apiKey: v } });
+    setSavedState("done");
+    setTimeout(() => setSavedState("idle"), 1500);
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
+      <h2 className="byline mb-3">Ollama API key</h2>
+      <p className="mb-3 font-serif text-[12.5px] italic text-fg-muted">
+        Required for the hosted <span className="font-mono not-italic">web_search</span>{" "}
+        and <span className="font-mono not-italic">web_fetch</span> tools.
+        Create one at{" "}
+        <a
+          href="https://ollama.com/settings/keys"
+          target="_blank"
+          rel="noreferrer"
+          className="text-accent underline"
+        >
+          ollama.com/settings/keys
+        </a>
+        . Stored locally in{" "}
+        <span className="font-mono not-italic">.config/settings.json</span>.
+      </p>
+      <div className="flex items-center gap-2 text-[11.5px]">
+        <input
+          type={reveal ? "text" : "password"}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="paste token here"
+          disabled={!settings}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              save();
+            }
+          }}
+          className="flex-1 rounded border border-border bg-bg-paper px-2 py-1 font-mono text-fg focus:border-accent focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={!settings || draft.trim() === saved || savedState === "saving"}
+          className="rounded border border-border bg-bg-paper px-3 py-1 font-sans text-fg hover:border-accent hover:text-accent disabled:opacity-40"
+        >
+          {savedState === "saving"
+            ? "Saving…"
+            : savedState === "done"
+              ? "Saved"
+              : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setReveal((r) => !r)}
+          className="rounded border border-border px-2 py-1 font-sans text-fg-muted hover:border-accent hover:text-fg"
+        >
+          {reveal ? "Hide" : "Show"}
+        </button>
+      </div>
+    </section>
   );
 }
 

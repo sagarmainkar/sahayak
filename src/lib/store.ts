@@ -1,95 +1,25 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
-import path from "node:path";
 import { nanoid } from "nanoid";
 import type { Assistant, ChatMessage, Session } from "@/lib/types";
+import {
+  ASSISTANTS_FILE,
+  CONFIG_DIR,
+  DATA_DIR,
+  assistantDir,
+  sessionDir,
+  sessionFile,
+} from "@/lib/paths";
+import { GENERAL_SYSTEM_PROMPT } from "@/lib/archetypes";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const ASSISTANTS_FILE = path.join(DATA_DIR, "assistants.json");
-const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
-
-async function ensureDirs() {
+async function ensureBaseDirs() {
+  await fs.mkdir(CONFIG_DIR, { recursive: true });
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.mkdir(SESSIONS_DIR, { recursive: true });
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are a helpful, concise assistant running locally on the user's machine.
+// Single source of truth for the General prompt lives in archetypes.ts.
+const DEFAULT_SYSTEM_PROMPT = GENERAL_SYSTEM_PROMPT;
 
-Date awareness
-- At the start of every new conversation, silently call execute_command with \`date -u '+%Y-%m-%d %H:%M UTC'\` to anchor time.
-- Your training data is stale. For anything time-sensitive, prefer web_search over memory.
-
-Style
-- Direct and accurate. No filler.
-- Match reply length to the task.
-- Use markdown for code/lists; avoid when it doesn't help.
-
-Reasoning (medium effort)
-- Simple questions: answer directly.
-- Multi-step: think briefly (2-4 sentences), then answer.
-- Never dump long chain-of-thought.
-
-Tools
-- If a tool is enabled and relevant, call it instead of guessing.
-- On tool errors, change arguments rather than retrying identically.
-
-Safety
-- Decline destructive shell actions unless explicitly asked.
-- Never fabricate file paths, API responses, or command outputs.
-
-Memory — cross-session notes about the user
-- **Facts** and **preferences** about the user are already prepended
-  to this system prompt (the "Known about the user" block above).
-  Treat them as always-current context — respect preferences, use
-  facts to tailor answers. Do NOT call \`recall_memory\` to look them
-  up; they're in front of you.
-
-- For the other four memory types — **episodic** (dated experiences),
-  **procedural** (how-to recipes), **event** (upcoming / time-bound),
-  **semantic** (general knowledge) — call \`recall_memory(query)\` at
-  the START of your reply when the user's topic could plausibly match.
-  Examples:
-    - "how did we fix that bug last week?" → episodic
-    - "how do we deploy to Azure?" → procedural
-    - "is there anything on my calendar Thursday?" → event
-    - "what does xychart-beta do in mermaid?" → semantic
-  Do this silently — no "let me check my memory…" filler. When unsure,
-  call it: a no-match result is cheap.
-
-- \`list_memories({type?})\` — use when the user explicitly asks "what
-  do you remember" / "what have I noted". Returns everything without
-  ranking.
-
-- \`remember({type, content})\` — call ONLY when the user explicitly
-  asks ("remember that…", "from now on…") or states something clearly
-  stable and personal. Pick the right type. Do NOT auto-save
-  conversational trivia.
-
-- Types: fact | preference | episodic | procedural | event | semantic.
-
-Diagrams and visuals — pick the right tool, or don't draw
-- \`\`\`mermaid is ONLY for node/edge diagrams. The first line of the
-  fence must be one of these exact keywords:
-    flowchart TD | flowchart LR   (processes, decision trees)
-    sequenceDiagram               (actor-to-actor ordering)
-    classDiagram                  (UML classes)
-    stateDiagram-v2               (state machines)
-    erDiagram                     (database entities)
-    gantt                         (timelines)
-    pie                           (named percentage breakdown)
-    mindmap                       (hierarchical ideas)
-  NEVER invent other keywords (e.g. \`lineChart\`, \`barChart\`, \`tree\`,
-  \`flow\`) — mermaid will fail to parse. If unsure a keyword is valid,
-  do NOT use \`\`\`mermaid.
-- \`\`\`svg for geometric figures, icons, equation geometry, AND simple
-  static charts (line/bar) hand-drawn with <polyline>, <rect>, <line>,
-  <text>. Must be a full <svg>...</svg> element. Rendered inline.
-- \`\`\`html fence that starts with <!doctype html> or <html> for
-  self-contained static pages. Routed to the iframe panel.
-- For INTERACTIVE data charts/dashboards: don't draw. Reply in prose:
-  "I can render this as an interactive artifact — toggle the sparkles
-  icon in the composer and resend." Do not attempt dynamic data viz in
-  mermaid or svg; it will look wrong.`;
 
 /**
  * Appended to the system prompt only when the user toggles "artifact mode"
@@ -152,7 +82,7 @@ export const BASE_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT;
 // ---------- assistants ----------
 
 export async function readAssistants(): Promise<Assistant[]> {
-  await ensureDirs();
+  await ensureBaseDirs();
   if (!existsSync(ASSISTANTS_FILE)) {
     await writeAssistants([]);
     return [];
@@ -167,7 +97,7 @@ export async function readAssistants(): Promise<Assistant[]> {
 }
 
 export async function writeAssistants(list: Assistant[]) {
-  await ensureDirs();
+  await ensureBaseDirs();
   await fs.writeFile(ASSISTANTS_FILE, JSON.stringify(list, null, 2));
 }
 
@@ -220,7 +150,7 @@ export async function createAssistant(
     updatedAt: now,
   };
   await writeAssistants([...list, a]);
-  await fs.mkdir(path.join(SESSIONS_DIR, a.id), { recursive: true });
+  await fs.mkdir(assistantDir(a.id), { recursive: true });
   return a;
 }
 
@@ -243,10 +173,13 @@ export async function updateAssistant(
   return updated;
 }
 
+/** Deleting an assistant rips the entire `.data/<aid>/` tree —
+ *  sessions, their uploads, their artifacts, everything. No dangling
+ *  references anywhere else because nothing is cross-session scoped. */
 export async function deleteAssistant(id: string) {
   const list = await readAssistants();
   await writeAssistants(list.filter((a) => a.id !== id));
-  const dir = path.join(SESSIONS_DIR, id);
+  const dir = assistantDir(id);
   if (existsSync(dir)) await fs.rm(dir, { recursive: true, force: true });
 }
 
@@ -267,14 +200,12 @@ type MetaRecord = {
 
 type MessageRecord = { type: "message"; data: ChatMessage };
 
-function sessionPath(assistantId: string, id: string) {
-  return path.join(SESSIONS_DIR, assistantId, `${id}.jsonl`);
-}
-
 function dumpSession(meta: MetaRecord, messages: ChatMessage[]): string {
   const lines: string[] = [JSON.stringify(meta)];
   for (const m of messages) {
-    lines.push(JSON.stringify({ type: "message", data: m } satisfies MessageRecord));
+    lines.push(
+      JSON.stringify({ type: "message", data: m } satisfies MessageRecord),
+    );
   }
   return lines.join("\n") + "\n";
 }
@@ -325,30 +256,35 @@ function sortSessions<T extends { pinned?: boolean; updatedAt: number }>(
   });
 }
 
+/** Each session lives in its own dir; list its subdirs and read each
+ *  one's session.jsonl. */
+async function listSessionDirs(assistantId: string): Promise<string[]> {
+  const root = assistantDir(assistantId);
+  if (!existsSync(root)) return [];
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+}
+
 export async function listSessions(assistantId: string): Promise<Session[]> {
-  const dir = path.join(SESSIONS_DIR, assistantId);
-  if (!existsSync(dir)) return [];
-  const files = (await fs.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  const ids = await listSessionDirs(assistantId);
   const out: Session[] = [];
-  for (const f of files) {
-    const loaded = await loadSessionFile(path.join(dir, f));
+  for (const sid of ids) {
+    const loaded = await loadSessionFile(sessionFile(assistantId, sid));
     if (loaded) out.push(metaToSession(loaded.meta, loaded.messages));
   }
   return sortSessions(out);
 }
 
-/** Fast path for analytics: reads only the meta line of each JSONL. */
+/** Fast path for analytics: reads only the meta line of each session. */
 export async function listSessionMetas(
   assistantId: string,
 ): Promise<Omit<Session, "messages">[]> {
-  const dir = path.join(SESSIONS_DIR, assistantId);
-  if (!existsSync(dir)) return [];
-  const files = (await fs.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+  const ids = await listSessionDirs(assistantId);
   const out: Omit<Session, "messages">[] = [];
-  for (const f of files) {
-    const p = path.join(dir, f);
+  for (const sid of ids) {
+    const p = sessionFile(assistantId, sid);
+    if (!existsSync(p)) continue;
     try {
-      // Read just enough to get the first line (meta record).
       const fh = await fs.open(p, "r");
       try {
         const buf = Buffer.alloc(2048);
@@ -380,10 +316,13 @@ export async function listSessionMetas(
 }
 
 export async function getSession(id: string): Promise<Session | null> {
-  // Walk all assistant dirs to find the session (id is global unique)
-  if (!existsSync(SESSIONS_DIR)) return null;
-  for (const aid of await fs.readdir(SESSIONS_DIR)) {
-    const p = sessionPath(aid, id);
+  // Session ids are globally unique (nanoid). Walk assistant dirs until
+  // we find the one owning this session.
+  if (!existsSync(DATA_DIR)) return null;
+  const assistants = await fs.readdir(DATA_DIR, { withFileTypes: true });
+  for (const a of assistants) {
+    if (!a.isDirectory()) continue;
+    const p = sessionFile(a.name, id);
     if (existsSync(p)) {
       const loaded = await loadSessionFile(p);
       if (loaded) return metaToSession(loaded.meta, loaded.messages);
@@ -394,7 +333,11 @@ export async function getSession(id: string): Promise<Session | null> {
 
 export async function createSession(
   assistantId: string,
-  input: { title?: string; messages?: ChatMessage[]; modelOverride?: string | null },
+  input: {
+    title?: string;
+    messages?: ChatMessage[];
+    modelOverride?: string | null;
+  },
 ): Promise<Session> {
   const now = Date.now();
   const meta: MetaRecord = {
@@ -409,9 +352,11 @@ export async function createSession(
     updatedAt: now,
   };
   const messages = input.messages ?? [];
-  const dir = path.join(SESSIONS_DIR, assistantId);
-  await fs.mkdir(dir, { recursive: true });
-  await fs.writeFile(sessionPath(assistantId, meta.id), dumpSession(meta, messages));
+  await fs.mkdir(sessionDir(assistantId, meta.id), { recursive: true });
+  await fs.writeFile(
+    sessionFile(assistantId, meta.id),
+    dumpSession(meta, messages),
+  );
   return metaToSession(meta, messages);
 }
 
@@ -426,17 +371,23 @@ export async function updateSession(
     pinned?: boolean;
   },
 ): Promise<Session | null> {
-  if (!existsSync(SESSIONS_DIR)) return null;
-  for (const aid of await fs.readdir(SESSIONS_DIR)) {
-    const p = sessionPath(aid, id);
+  if (!existsSync(DATA_DIR)) return null;
+  const assistants = await fs.readdir(DATA_DIR, { withFileTypes: true });
+  for (const a of assistants) {
+    if (!a.isDirectory()) continue;
+    const p = sessionFile(a.name, id);
     if (!existsSync(p)) continue;
     const loaded = await loadSessionFile(p);
     if (!loaded) return null;
     const newMeta: MetaRecord = {
       ...loaded.meta,
       ...(patch.title !== undefined && { title: patch.title }),
-      ...(patch.modelOverride !== undefined && { modelOverride: patch.modelOverride }),
-      ...(patch.promptTokens !== undefined && { promptTokens: patch.promptTokens }),
+      ...(patch.modelOverride !== undefined && {
+        modelOverride: patch.modelOverride,
+      }),
+      ...(patch.promptTokens !== undefined && {
+        promptTokens: patch.promptTokens,
+      }),
       ...(patch.completionTokens !== undefined && {
         completionTokens: patch.completionTokens,
       }),
@@ -450,12 +401,17 @@ export async function updateSession(
   return null;
 }
 
+/** Deleting a session rips the entire session dir — jsonl, uploads,
+ *  and artifacts. That's the whole point of the session-scoped layout:
+ *  one rm, nothing lingering. */
 export async function deleteSession(id: string) {
-  if (!existsSync(SESSIONS_DIR)) return;
-  for (const aid of await fs.readdir(SESSIONS_DIR)) {
-    const p = sessionPath(aid, id);
-    if (existsSync(p)) {
-      await fs.rm(p, { force: true });
+  if (!existsSync(DATA_DIR)) return;
+  const assistants = await fs.readdir(DATA_DIR, { withFileTypes: true });
+  for (const a of assistants) {
+    if (!a.isDirectory()) continue;
+    const dir = sessionDir(a.name, id);
+    if (existsSync(dir)) {
+      await fs.rm(dir, { recursive: true, force: true });
       return;
     }
   }

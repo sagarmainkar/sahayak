@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
-import path from "node:path";
+import { DATA_DIR, assistantDir, sessionFile } from "@/lib/paths";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const DATA_DIR = path.join(process.cwd(), "data");
-const SESSIONS_DIR = path.join(DATA_DIR, "sessions");
 
 const MAX_HITS = 40;
 const SNIPPET_RADIUS = 70;
@@ -180,28 +177,31 @@ export async function GET(req: Request) {
   const assistantId = url.searchParams.get("assistant") ?? "";
   if (!q || q.length < 2) return NextResponse.json({ hits: [] });
 
-  const assistantDirs: string[] = [];
+  const assistantIds: string[] = [];
   if (scope === "all" || !assistantId) {
-    if (existsSync(SESSIONS_DIR)) {
-      const entries = await fs.readdir(SESSIONS_DIR, { withFileTypes: true });
-      for (const e of entries) if (e.isDirectory()) assistantDirs.push(e.name);
+    if (existsSync(DATA_DIR)) {
+      const entries = await fs.readdir(DATA_DIR, { withFileTypes: true });
+      for (const e of entries) if (e.isDirectory()) assistantIds.push(e.name);
     }
   } else {
-    assistantDirs.push(assistantId);
+    assistantIds.push(assistantId);
   }
 
   const hits: SearchHit[] = [];
-  outer: for (const aid of assistantDirs) {
-    const dir = path.join(SESSIONS_DIR, aid);
+  outer: for (const aid of assistantIds) {
+    const dir = assistantDir(aid);
     if (!existsSync(dir)) continue;
-    let files: string[] = [];
+    let sessionIds: string[] = [];
     try {
-      files = (await fs.readdir(dir)).filter((f) => f.endsWith(".jsonl"));
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      sessionIds = entries.filter((e) => e.isDirectory()).map((e) => e.name);
     } catch {
       continue;
     }
-    for (const f of files) {
-      const hit = await scanFile(path.join(dir, f), aid, q);
+    for (const sid of sessionIds) {
+      const jsonlPath = sessionFile(aid, sid);
+      if (!existsSync(jsonlPath)) continue;
+      const hit = await scanFile(jsonlPath, aid, q);
       if (hit) hits.push(hit);
       if (hits.length >= MAX_HITS) break outer;
     }

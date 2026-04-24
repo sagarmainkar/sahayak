@@ -94,6 +94,12 @@ async function handleSlash(raw: string): Promise<SlashOutcome | null> {
 
 type Props = {
   assistantName: string;
+  /** Session-scoped upload context. assistantId is stable; sessionId
+   *  may not yet exist (fresh chat, user drops a file before typing).
+   *  `resolveSessionId` lazily creates one when needed — the composer
+   *  awaits it only on upload paths. */
+  assistantId: string;
+  resolveSessionId: () => Promise<string>;
   streaming: boolean;
   onSend: (
     text: string,
@@ -126,11 +132,14 @@ type UploadResult =
   | { ok: false; needsPassword: true; message: string; retry: boolean };
 
 async function uploadOne(
+  scope: { assistantId: string; sessionId: string },
   file: File,
   password?: string,
 ): Promise<UploadResult> {
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("assistantId", scope.assistantId);
+  fd.append("sessionId", scope.sessionId);
   if (password) fd.append("password", password);
   try {
     const r = await fetch("/api/uploads", { method: "POST", body: fd });
@@ -198,12 +207,27 @@ function classifyFile(f: File): "image" | "document" | "other" {
 
 export function Composer({
   assistantName,
+  assistantId,
+  resolveSessionId,
   streaming,
   onSend,
   onAbort,
   pendingAttachment,
   onPendingAttachmentConsumed,
 }: Props) {
+  // Resolve the current session id only when actually uploading; a
+  // fresh chat lazily creates its session on first interaction. Once
+  // resolved we sticky it so `imgSrcFor` can build the attachment URL
+  // without awaiting.
+  const [stickySid, setStickySid] = useState<string | null>(null);
+  async function currentScope(): Promise<{
+    assistantId: string;
+    sessionId: string;
+  }> {
+    const sessionId = stickySid ?? (await resolveSessionId());
+    if (sessionId !== stickySid) setStickySid(sessionId);
+    return { assistantId, sessionId };
+  }
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<MsgAttachment[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -343,7 +367,10 @@ export function Composer({
     if (!arr.length) return;
     setUploading((n) => n + arr.length);
     const results = await Promise.all(
-      arr.map(async (f) => ({ file: f, res: await uploadOne(f) })),
+      arr.map(async (f) => ({
+        file: f,
+        res: await uploadOne(await currentScope(), f),
+      })),
     );
     const successes: MsgAttachment[] = [];
     const failures: string[] = [];
@@ -373,7 +400,7 @@ export function Composer({
     if (!first || !password) return;
     setUnlocking(true);
     try {
-      const res = await uploadOne(first.file, password);
+      const res = await uploadOne(await currentScope(), first.file, password);
       if (res.ok) {
         setAttachments((prev) => [...prev, res.attachment]);
         setPendingEncrypted((prev) => prev.slice(1));
@@ -402,8 +429,14 @@ export function Composer({
 
   function imgSrcFor(a: MsgAttachment): string {
     if (a.type !== "image") return "";
-    if (a.filename) return `/api/attachment/${a.filename}`;
+    // Prefer inline base64 when present (screenshot path never touches
+    // disk). Otherwise build the session-scoped URL — stickySid is
+    // set by `currentScope()` during upload, so it's available by the
+    // time this chip renders.
     if (a.data) return `data:${a.mimeType};base64,${a.data}`;
+    if (a.filename && stickySid) {
+      return `/api/attachment/${encodeURIComponent(assistantId)}/${encodeURIComponent(stickySid)}/${encodeURIComponent(a.filename)}`;
+    }
     return "";
   }
 

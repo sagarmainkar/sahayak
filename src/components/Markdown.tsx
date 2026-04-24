@@ -158,7 +158,14 @@ export function Markdown({
         components={{
           code(props) {
             const { className, children, ...rest } = props;
-            const inline = !className;
+            // react-markdown@10 dropped the `inline` prop. A fence
+            // without a language (just ```) arrives with className=
+            // undefined — same as inline ` foo `. Differentiate by
+            // content: block fences always carry a newline; inline
+            // code never does. Without this, ``` ASCII-art ``` blocks
+            // render as inline <code> in flowing prose (boxes break).
+            const text = String(children ?? "");
+            const inline = !className && !text.includes("\n");
             if (inline) {
               return <code {...rest}>{children}</code>;
             }

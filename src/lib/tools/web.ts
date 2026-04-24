@@ -1,25 +1,28 @@
-import fs from "node:fs";
-import path from "node:path";
+import { readSettings } from "@/lib/settings";
 import { err, ok, type ToolSpec } from "./types";
 
-function getApiKey(): string | null {
-  if (process.env.OLLAMA_API_KEY) return process.env.OLLAMA_API_KEY;
+/** Key lookup order: env var (dev / Docker secrets) → settings
+ *  (.config/settings.json, populated via the Settings page). Returns
+ *  null if neither is set; the caller surfaces a friendly error the
+ *  user can fix in the UI. */
+async function getApiKey(): Promise<string | null> {
+  const envKey = process.env.OLLAMA_API_KEY;
+  if (envKey && envKey.trim()) return envKey.trim();
   try {
-    const credFile = path.join(
-      process.env.HOME ?? "",
-      ".openclaw/credentials/ollama.json",
-    );
-    const raw = fs.readFileSync(credFile, "utf8");
-    const j = JSON.parse(raw) as { api_key?: string };
-    return j.api_key ?? null;
-  } catch {
-    return null;
-  }
+    const s = await readSettings();
+    if (s.ollama.apiKey) return s.ollama.apiKey;
+  } catch {}
+  return null;
 }
 
 async function call(url: string, payload: unknown) {
-  const key = getApiKey();
-  if (!key) return err("missing_api_key", "OLLAMA_API_KEY not set");
+  const key = await getApiKey();
+  if (!key) {
+    return err(
+      "missing_api_key",
+      "Ollama API key not configured. Set it in Settings → Ollama API key.",
+    );
+  }
   const r = await fetch(url, {
     method: "POST",
     headers: {

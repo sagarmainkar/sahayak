@@ -74,11 +74,18 @@ export async function deriveCtxModel(
     // Listing failed — let /api/create surface the real error below.
   }
 
-  const modelfile = `FROM ${base}\nPARAMETER num_ctx ${numCtx}\n`;
+  // Ollama 0.21+ changed /api/create: the legacy `modelfile` blob is
+  // no longer accepted (returns 400 "neither 'from' or 'files' was
+  // specified"). Use the structured form: { from, parameters }.
   const r = await fetch(`${OLLAMA_URL}/api/create`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: name, modelfile, stream: false }),
+    body: JSON.stringify({
+      model: name,
+      from: base,
+      parameters: { num_ctx: numCtx },
+      stream: false,
+    }),
   });
   if (!r.ok) {
     const text = await r.text().catch(() => "");

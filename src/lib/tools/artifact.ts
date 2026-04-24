@@ -1,9 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
+import { artifactDir, artifactsDir, isValidFilename } from "@/lib/paths";
 import { err, ok, type ToolSpec } from "./types";
-
-const ARTIFACTS_DIR = path.join(process.cwd(), "data", "artifacts");
 
 function slugify(s: string) {
   return (s || "artifact")
@@ -17,10 +16,6 @@ function slugify(s: string) {
 
 function validId(id: string) {
   return /^[a-z0-9][a-z0-9-]{0,80}$/.test(id);
-}
-
-function validFilename(f: string) {
-  return /^[a-zA-Z0-9._-]+$/.test(f);
 }
 
 export const artifactCreate: ToolSpec = {
@@ -43,7 +38,13 @@ export const artifactCreate: ToolSpec = {
     },
     required: [],
   },
-  async handler(args) {
+  async handler(args, ctx) {
+    if (!ctx) {
+      return err(
+        "no_context",
+        "artifact_create requires an active chat session",
+      );
+    }
     const title =
       typeof args.title === "string" && args.title.trim()
         ? args.title.trim()
@@ -52,17 +53,22 @@ export const artifactCreate: ToolSpec = {
     if (typeof args.id === "string" && args.id.trim()) {
       const candidate = args.id.trim().toLowerCase();
       if (!validId(candidate)) {
-        return err(
-          "bad_id",
-          "id must match ^[a-z0-9][a-z0-9-]{0,80}$",
-        );
+        return err("bad_id", "id must match ^[a-z0-9][a-z0-9-]{0,80}$");
       }
       id = candidate;
     } else {
       id = `${slugify(title)}-${nanoid(8).replace(/[^a-z0-9]/gi, "").toLowerCase()}`;
     }
-    const dir = path.join(ARTIFACTS_DIR, id, "files");
+    const dir = path.join(
+      artifactDir(ctx.assistantId, ctx.sessionId, id),
+      "files",
+    );
     await fs.mkdir(dir, { recursive: true });
+    // Also pre-create the artifact root so later meta.json writes don't
+    // race on parent creation.
+    await fs.mkdir(artifactsDir(ctx.assistantId, ctx.sessionId), {
+      recursive: true,
+    });
     return ok({
       id,
       files_path: dir,
@@ -92,17 +98,26 @@ export const artifactWriteFile: ToolSpec = {
     },
     required: ["id", "filename", "content"],
   },
-  async handler(args) {
+  async handler(args, ctx) {
+    if (!ctx) {
+      return err(
+        "no_context",
+        "artifact_write_file requires an active chat session",
+      );
+    }
     const id = String(args.id ?? "");
     const filename = String(args.filename ?? "");
     const content = String(args.content ?? "");
     if (!validId(id)) return err("bad_id", "invalid artifact id");
-    if (!validFilename(filename))
+    if (!isValidFilename(filename))
       return err(
         "bad_filename",
         "filename must be a single basename matching [A-Za-z0-9._-]",
       );
-    const dir = path.join(ARTIFACTS_DIR, id, "files");
+    const dir = path.join(
+      artifactDir(ctx.assistantId, ctx.sessionId, id),
+      "files",
+    );
     await fs.mkdir(dir, { recursive: true });
     const full = path.join(dir, filename);
     await fs.writeFile(full, content, "utf8");

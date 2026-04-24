@@ -99,13 +99,23 @@ const Turn = memo(function Turn({
         {m.attachments && m.attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap justify-end gap-2">
             {m.attachments.map((a, i) => {
+              // Attachment URLs are session-scoped since the files live
+              // under .data/<aid>/<sid>/uploads/ — we need both ids to
+              // address them. Guard against the brief window where
+              // sessionId isn't populated yet (happens only if a
+              // pending user message renders before ensureSession
+              // resolves — rare, the UI simply shows no preview).
+              const attUrl = (filename: string) =>
+                sessionId
+                  ? `/api/attachment/${encodeURIComponent(assistant.id)}/${encodeURIComponent(sessionId)}/${encodeURIComponent(filename)}`
+                  : "#";
               if (a.type === "image") {
                 return (
                   <img
                     key={i}
                     src={
                       a.filename
-                        ? `/api/attachment/${a.filename}`
+                        ? attUrl(a.filename)
                         : `data:${a.mimeType};base64,${a.data}`
                     }
                     alt=""
@@ -118,7 +128,7 @@ const Turn = memo(function Turn({
               return (
                 <a
                   key={i}
-                  href={`/api/attachment/${a.filename}`}
+                  href={attUrl(a.filename)}
                   download={a.originalName ?? a.filename}
                   target="_blank"
                   rel="noreferrer"
@@ -327,15 +337,31 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       return;
     }
     fetch(`/api/sessions/${sessionId}`)
-      .then((r) => r.json())
-      .then((d: { session: Session }) => {
+      .then(async (r) => {
+        if (r.status === 404) {
+          // URL points at a session that no longer exists (data wiped,
+          // session deleted, or fresh-slate restructure). Drop the
+          // session id so the user lands on a clean new-chat view
+          // instead of a TypeError on undefined.session.
+          window.history.replaceState(null, "", `/chat/${assistantId}`);
+          setSessionId(null);
+          setMessages([]);
+          setCtx({ prompt: 0, completion: 0 });
+          return null;
+        }
+        if (!r.ok) throw new Error(`session GET ${r.status}`);
+        return (await r.json()) as { session: Session };
+      })
+      .then((d) => {
+        if (!d) return;
         setMessages(d.session.messages ?? []);
         setCtx({
           prompt: d.session.promptTokens,
           completion: d.session.completionTokens,
         });
-      });
-  }, [sessionId]);
+      })
+      .catch((e) => console.error("[chat] load session failed:", e));
+  }, [sessionId, assistantId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -661,6 +687,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       // If the assistant carries a num_ctx override, the server will
       // swap to a derived Ollama model automatically.
       contextLength: assistant.contextLength,
+      // Session scope — required. The server refuses chat requests
+      // without it (tools writing into the session's uploads/artifacts
+      // dirs need an authoritative scope).
+      assistantId: assistant.id,
+      sessionId: sid,
     };
 
     const ac = new AbortController();
@@ -1031,7 +1062,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }
 
   async function compact() {
-    if (!sessionId || messages.length < 6 || streaming) return;
+    if (!assistant || !sessionId || messages.length < 6 || streaming) return;
 
     const keep = messages.slice(-4);
     const older = messages.slice(0, messages.length - 4);
@@ -1069,6 +1100,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             "Summarise the chat history into a bullet list. Cover: key facts about the user or the work, decisions made, open questions, unresolved errors. Preserve names, IDs, file paths, commit hashes verbatim. Use short bullets (one sentence each). Scale the length to the input: 6-8 bullets for short chats, up to 25 for long multi-topic ones. Group related bullets under short italic sub-headings if the chat spans multiple topics.",
           messages: [{ role: "user", content: summaryText }],
           think: false,
+          // Even the summariser needs scope so server-side validation
+          // doesn't reject it. compact() only runs on an established
+          // session (ctx hit 70%, ≥6 messages), so sessionId is
+          // guaranteed non-null here.
+          assistantId: assistant.id,
+          sessionId: sessionId as string,
         }),
       });
       if (!r.ok || !r.body) {
@@ -1721,6 +1758,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
         <Composer
           assistantName={assistant.name}
+          assistantId={assistant.id}
+          resolveSessionId={() => ensureSession("New chat")}
           streaming={streaming}
           onSend={handleSend}
           onAbort={handleAbort}

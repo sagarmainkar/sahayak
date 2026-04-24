@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Save, Trash2, ArrowLeft, Wand2 } from "lucide-react";
+import { Save, Trash2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import type { Assistant, ModelInfo, ToolPublic } from "@/lib/types";
+import { ARCHETYPES } from "@/lib/archetypes";
 
 const EMOJIS = ["✨", "🤖", "🧠", "🎯", "🧭", "📚", "💻", "🔬", "✍️", "🎨", "🚀", "🛠️", "🧪", "🗺️", "📝"];
 const COLORS = [
@@ -52,13 +53,23 @@ export function AssistantEditor({
       .then((d: { systemPrompt: string }) => setDefaultPrompt(d.systemPrompt));
   }, []);
 
-  function loadDefaultPrompt() {
+  function loadArchetype(id: string) {
+    const archetype = ARCHETYPES.find((a) => a.id === id);
+    if (!archetype) return;
     const cur = (form.systemPrompt ?? "").trim();
-    if (cur && cur !== defaultPrompt) {
-      if (!confirm("Replace the current system prompt with the default?"))
+    if (
+      cur &&
+      cur !== archetype.systemPrompt &&
+      cur !== defaultPrompt
+    ) {
+      if (
+        !confirm(
+          `Replace the current system prompt with the "${archetype.name}" template?`,
+        )
+      )
         return;
     }
-    setForm((f) => ({ ...f, systemPrompt: defaultPrompt }));
+    setForm((f) => ({ ...f, systemPrompt: archetype.systemPrompt }));
   }
 
   async function save() {
@@ -244,16 +255,29 @@ export function AssistantEditor({
         <Section
           title="System prompt"
           actions={
-            defaultPrompt ? (
-              <button
-                type="button"
-                onClick={loadDefaultPrompt}
-                className="flex items-center gap-1 rounded border border-border px-2 py-1 font-sans text-[10.5px] text-fg-muted hover:border-accent hover:text-fg"
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="archetype"
+                className="font-sans text-[10.5px] text-fg-subtle"
               >
-                <Wand2 className="h-3 w-3" />
-                Load default
-              </button>
-            ) : null
+                template
+              </label>
+              <select
+                id="archetype"
+                onChange={(e) => loadArchetype(e.target.value)}
+                value=""
+                className="rounded border border-border bg-bg-paper px-2 py-1 font-sans text-[10.5px] text-fg-muted focus:border-accent focus:outline-none"
+              >
+                <option value="" disabled>
+                  Load…
+                </option>
+                {ARCHETYPES.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           }
         >
           <textarea
@@ -266,9 +290,9 @@ export function AssistantEditor({
             placeholder="Describe this assistant's role, style, and constraints…"
           />
           <p className="font-sans text-[10.5px] text-fg-subtle">
-            Use <span className="font-mono">Load default</span> as a
-            starting point, then customise. Artifact instructions are
-            injected per-turn via the composer toggle, not stored here.
+            Pick a template to fill the prompt, then edit freely.
+            Artifact instructions are injected per-turn via the composer
+            toggle, not stored here.
           </p>
         </Section>
 

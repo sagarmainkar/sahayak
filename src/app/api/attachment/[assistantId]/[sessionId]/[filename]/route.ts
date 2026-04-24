@@ -5,10 +5,18 @@ export const runtime = "nodejs";
 
 export async function GET(
   _req: Request,
-  { params }: { params: Promise<{ filename: string }> },
+  {
+    params,
+  }: {
+    params: Promise<{
+      assistantId: string;
+      sessionId: string;
+      filename: string;
+    }>;
+  },
 ) {
-  const { filename } = await params;
-  const data = await readUpload(filename);
+  const { assistantId, sessionId, filename } = await params;
+  const data = await readUpload({ assistantId, sessionId }, filename);
   if (!data) return new Response("not found", { status: 404 });
   return new Response(new Uint8Array(data.buffer), {
     headers: {

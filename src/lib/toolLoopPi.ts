@@ -14,6 +14,7 @@ import {
   toPiMessages,
 } from "@/lib/piAdapters";
 import type { ClientMsg } from "@/lib/toolLoop";
+import { IMPLICIT_TOOL_NAMES } from "@/lib/tools";
 
 type Decision = "approve" | "deny" | "cancel";
 type Controller = ReadableStreamDefaultController<Uint8Array>;
@@ -33,6 +34,10 @@ export type PiRunInput = {
   requireApproval: string[];
   /** Hard cap on LLM turns to match the native `maxToolTurns`. */
   maxToolTurns: number;
+  /** Session scope — threaded to artifact tools + attachment readers
+   *  so everything this run touches lives under the session's dir. */
+  assistantId: string;
+  sessionId: string;
 };
 
 type PauseEntry = {
@@ -210,6 +215,9 @@ function isGated(
   // tools (not present in DEFAULT_REQUIRE_APPROVAL) bypass HITL.
   _requireApproval: string[],
 ): boolean {
+  // Implicit tools (memory: remember/recall/list) are always
+  // un-gated — they're invisible infrastructure, not user-driven.
+  if (IMPLICIT_TOOL_NAMES.has(toolName)) return false;
   return !autoApproveTools.includes(toolName);
 }
 
@@ -229,8 +237,12 @@ export async function startPiRun(
 ): Promise<void> {
   sweep();
   const model = piModelForOllama(input.model);
-  const tools = await piToolsFromEnabled(input.enabledTools);
-  const messages = await toPiMessages(input.clientMessages);
+  const scope = {
+    assistantId: input.assistantId,
+    sessionId: input.sessionId,
+  };
+  const tools = await piToolsFromEnabled(input.enabledTools, scope);
+  const messages = await toPiMessages(input.clientMessages, scope);
   // Mutable in place so resume's splice(0, ..., list) is visible to
   // beforeToolCall's isGated() check on the next pause.
   const approvalState = {

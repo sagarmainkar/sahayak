@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
-import path from "node:path";
 import { nanoid } from "nanoid";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -8,8 +7,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { McpServer, McpServerStatus, McpTool } from "./types";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const MCP_FILE = path.join(DATA_DIR, "mcp.json");
+import { CONFIG_DIR, MCP_FILE } from "@/lib/paths";
 
 type PoolEntry = {
   client: Client | null;
@@ -51,7 +49,7 @@ async function loadServers(): Promise<McpServer[]> {
 }
 
 async function saveServers(list: McpServer[]): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+  await fs.mkdir(CONFIG_DIR, { recursive: true });
   await fs.writeFile(MCP_FILE, JSON.stringify(list, null, 2));
 }
 

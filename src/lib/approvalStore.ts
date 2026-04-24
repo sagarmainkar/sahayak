@@ -36,6 +36,10 @@ export type PausedLoop = {
   requireApproval: string[];
   maxToolTurns: number;
   artifactsEnabled: boolean;
+  // Session scope: tools that write to .data/<aid>/<sid>/ (artifact
+  // tools) need this to target the correct session on resume.
+  assistantId: string;
+  sessionId: string;
 };
 
 const TTL_MS = 10 * 60 * 1000; // 10 minutes

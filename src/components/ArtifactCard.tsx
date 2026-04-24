@@ -6,14 +6,18 @@ import { useArtifactPanel } from "./ArtifactPanelContext";
 export function ArtifactCard({
   id,
   title,
+  assistantId,
+  sessionId,
 }: {
   id: string;
   title: string;
+  assistantId: string;
+  sessionId: string;
 }) {
   const { open } = useArtifactPanel();
   return (
     <button
-      onClick={() => open(id)}
+      onClick={() => open(id, { assistantId, sessionId })}
       className="group my-3 flex w-full items-center gap-3 rounded-lg border border-border bg-bg-paper px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-accent hover:shadow-[var(--shadow)] not-prose"
     >
       <div

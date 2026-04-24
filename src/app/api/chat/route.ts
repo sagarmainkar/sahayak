@@ -32,10 +32,24 @@ type ChatRequest = {
   /** Per-assistant context-window override. When set, Sahayak derives a
    *  sibling Ollama model with num_ctx baked in and uses that here. */
   contextLength?: number;
+  /** Session scope — required. Tools that write into the session's
+   *  artifacts/uploads dirs need this; attachment readers use it to
+   *  find the files on disk. */
+  assistantId: string;
+  sessionId: string;
 };
 
 export async function POST(req: Request) {
   const body = (await req.json()) as ChatRequest;
+
+  if (!body.assistantId || !body.sessionId) {
+    return new Response(
+      JSON.stringify({
+        error: "missing scope: assistantId and sessionId are required",
+      }),
+      { status: 400 },
+    );
+  }
 
   const enabled = filterArtifactTools(
     body.enabledTools ?? [],
@@ -75,6 +89,11 @@ export async function POST(req: Request) {
     }
   }
 
+  const scope = {
+    assistantId: body.assistantId,
+    sessionId: body.sessionId,
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       if (usePi) {
@@ -91,13 +110,19 @@ export async function POST(req: Request) {
             autoApproveTools: body.autoApproveTools ?? [],
             requireApproval: body.requireApproval ?? DEFAULT_REQUIRE_APPROVAL,
             maxToolTurns: body.maxToolTurns ?? 100,
+            assistantId: scope.assistantId,
+            sessionId: scope.sessionId,
           },
           controller,
         );
         return;
       }
 
-      const messages = await toOllamaMessages(clientMsgs, systemWithMemory);
+      const messages = await toOllamaMessages(
+        clientMsgs,
+        scope,
+        systemWithMemory,
+      );
       await runToolLoop(
         {
           createdAt: Date.now(),
@@ -112,6 +137,8 @@ export async function POST(req: Request) {
           requireApproval: body.requireApproval ?? DEFAULT_REQUIRE_APPROVAL,
           maxToolTurns: body.maxToolTurns ?? 100,
           artifactsEnabled: !!body.artifactsEnabled,
+          assistantId: scope.assistantId,
+          sessionId: scope.sessionId,
         },
         controller,
       );

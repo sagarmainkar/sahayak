@@ -40,8 +40,16 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# sahayak: user data (chats, assistants, uploaded images)
+# sahayak: app config (assistants, mcp, settings, memory)
+/.config
+
+# sahayak: user data (sessions + their artifacts/uploads)
+/.data
+
+# legacy: old flat data/ tree (pre-session-scoped layout) and
+# any timestamped backup of it made during the refactor.
 /data
+/data.bak-*
 
 # local screenshots
 /screenshots
