@@ -46,20 +46,21 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  // Bad JSX no longer rejects the request. We persist the artifact
+  // with a `validationError` field so the user can always open the
+  // panel, see the error + the source, and trigger a manual fix when
+  // the auto-retry loop has given up. The client decides whether to
+  // also kick off a silent auto-fix turn (via onAutoFix) based on
+  // attempt count.
   const validationError = validateJsx(body.source);
-  if (validationError) {
-    return NextResponse.json(
-      { error: "validation_failed", message: validationError },
-      { status: 422 },
-    );
-  }
   const a = await createArtifact(
     { assistantId: body.assistantId, sessionId: body.sessionId },
     {
       id: body.id,
       title: body.title ?? "Untitled",
       source: body.source,
+      validationError,
     },
   );
-  return NextResponse.json({ artifact: a });
+  return NextResponse.json({ artifact: a, validationError });
 }

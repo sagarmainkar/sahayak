@@ -99,6 +99,23 @@ export function piThinkLevel(
  * Tool output for the model is capped at 4000 chars (same as the native
  * loop). The full JSON is stashed in `details` so the UI can render it.
  */
+/** Hard cap on the tool output text we feed back to the model.
+ *  Applied at TWO points: once during initial execution (so the
+ *  same-turn next-round prompt stays small) and once when rebuilding
+ *  the message list from persisted history (so subsequent turns
+ *  don't re-inject the full 60–100 KB tool result). The persisted
+ *  JSONL keeps the full output for UI display; only the wire-bound
+ *  copy is truncated. */
+export const TOOL_OUTPUT_CAP = 4000;
+
+export function capToolText(text: string): string {
+  if (text.length <= TOOL_OUTPUT_CAP) return text;
+  return (
+    text.slice(0, TOOL_OUTPUT_CAP) +
+    `... [truncated ${text.length - TOOL_OUTPUT_CAP} chars]`
+  );
+}
+
 export function piToolFromSpec(spec: ToolSpec, ctx: ToolContext): AgentTool {
   return {
     name: spec.name,
@@ -117,11 +134,7 @@ export function piToolFromSpec(spec: ToolSpec, ctx: ToolContext): AgentTool {
         };
       }
       const fullJson = JSON.stringify(result);
-      const forModel =
-        fullJson.length > 4000
-          ? fullJson.slice(0, 4000) +
-            `... [truncated ${fullJson.length - 4000} chars]`
-          : fullJson;
+      const forModel = capToolText(fullJson);
       const isError = !result.ok;
       const content: TextContent[] = [{ type: "text", text: forModel }];
       return { content, details: { full: fullJson, ok: !isError } };
@@ -291,7 +304,12 @@ export async function toPiMessages(
         role: "toolResult",
         toolCallId: id,
         toolName: m.toolName ?? "unknown",
-        content: [{ type: "text", text: m.content ?? "" }],
+        // Truncate to match the in-flight cap that piToolFromSpec
+        // applies during initial execution. Without this, big web_*
+        // tool results (60–100 KB) get re-injected verbatim on every
+        // subsequent turn, blowing the model's context the moment a
+        // user sends a follow-up message.
+        content: [{ type: "text", text: capToolText(m.content ?? "") }],
         isError: false,
         timestamp: Date.now(),
       });

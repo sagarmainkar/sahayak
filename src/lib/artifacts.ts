@@ -68,6 +68,11 @@ export async function createArtifact(
     id?: string;
     title: string;
     source: string;
+    /** Babel parse error captured by the route. Persisted on meta so
+     *  the panel can show a banner; cleared by re-saving with a
+     *  successful validation. Pass `null` (not undefined) to
+     *  explicitly drop a previous error on a successful re-save. */
+    validationError?: string | null;
   },
 ): Promise<Artifact> {
   assertScope(scope);
@@ -93,11 +98,14 @@ export async function createArtifact(
     source: input.source,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
+    ...(input.validationError
+      ? { validationError: input.validationError }
+      : {}),
   };
-  await fs.writeFile(sourcePath(scope, id), input.source, "utf8");
+  await writeFileAtomic(sourcePath(scope, id), input.source);
   const meta = { ...artifact };
   delete (meta as Partial<Artifact>).source;
-  await fs.writeFile(metaPath(scope, id), JSON.stringify(meta, null, 2));
+  await writeFileAtomic(metaPath(scope, id), JSON.stringify(meta, null, 2));
   return artifact;
 }
 
@@ -107,10 +115,31 @@ async function readMeta(
 ): Promise<Artifact | null> {
   const mp = metaPath(scope, id);
   if (!existsSync(mp)) return null;
-  const meta = JSON.parse(await fs.readFile(mp, "utf8"));
+  let meta: unknown;
+  try {
+    meta = JSON.parse(await fs.readFile(mp, "utf8"));
+  } catch {
+    // Corrupted meta — treat as missing so the next createArtifact
+    // overwrites cleanly. This shows up after a race where two
+    // POSTs to the same id wrote concurrently and one tail-spliced
+    // the other. Atomic-write below prevents new corruptions.
+    return null;
+  }
   const sp = sourcePath(scope, id);
   const source = existsSync(sp) ? await fs.readFile(sp, "utf8") : "";
-  return { ...meta, source };
+  return { ...(meta as Artifact), source };
+}
+
+/** Write `data` to `target` atomically: write to a temp sibling file
+ *  in the same directory, then rename(2) — POSIX guarantees rename is
+ *  atomic on the same filesystem. Eliminates the half-written /
+ *  spliced-content failure mode when two POSTs race on the same id. */
+async function writeFileAtomic(target: string, data: string): Promise<void> {
+  const tmp = `${target}.tmp.${process.pid}.${Date.now()}.${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+  await fs.writeFile(tmp, data, "utf8");
+  await fs.rename(tmp, target);
 }
 
 export async function updateArtifact(
@@ -129,7 +158,7 @@ export async function updateArtifact(
   };
   const meta = { ...next };
   delete (meta as Partial<Artifact>).source;
-  await fs.writeFile(metaPath(scope, id), JSON.stringify(meta, null, 2));
+  await writeFileAtomic(metaPath(scope, id), JSON.stringify(meta, null, 2));
   return next;
 }
 

@@ -97,6 +97,10 @@ export type ChatMessage = {
    *  with the turn timeline's non-tool phases this gives a meaningful
    *  tokens/sec metric. Only on assistant messages. */
   completionTokens?: number;
+  /** Why the LLM stopped its last turn. "length" means it ran out of
+   *  token budget mid-thought — the UI surfaces a Continue button.
+   *  Only set on assistant messages. */
+  stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted";
   attachments?: MsgAttachment[];
   createdAt: number;
 };
@@ -125,6 +129,10 @@ export type Artifact = {
   createdAt: number;
   updatedAt: number;
   pinned?: boolean;
+  /** Babel parse error captured at write time. Present when the source
+   *  failed validation; the artifact is still saved so the user can
+   *  open the panel, see the error, and trigger a manual re-fix. */
+  validationError?: string;
 };
 
 export const MEMORY_TYPES = [

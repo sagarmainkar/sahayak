@@ -11,6 +11,7 @@ import { REACT_ARTIFACT_INSTRUCTIONS } from "@/lib/store";
 import { setPaused, type PausedLoop } from "@/lib/approvalStore";
 import type { MsgAttachment } from "@/lib/types";
 import type { ToolContext } from "@/lib/tools/types";
+import { capToolText } from "@/lib/piAdapters";
 
 // Gate every tool by default for consistency — users can "approve for
 // session" to skip the gate on subsequent calls in the same session.
@@ -64,7 +65,13 @@ export async function toOllamaMessages(
     out.push({ role: "system", content: system });
   }
   for (const m of messages) {
-    const om: OllamaMsg = { role: m.role, content: m.content ?? "" };
+    // Tool-role messages re-injected from JSONL must be re-truncated
+    // here, mirroring the in-execution cap below. Without this, big
+    // web_* tool results would balloon every subsequent turn's prompt
+    // to many times the model's context window.
+    const wireContent =
+      m.role === "tool" ? capToolText(m.content ?? "") : m.content ?? "";
+    const om: OllamaMsg = { role: m.role, content: wireContent };
     if (m.thinking) om.thinking = m.thinking;
     if (m.toolCalls && m.toolCalls.length) {
       om.tool_calls = m.toolCalls.map((tc) => ({
@@ -349,11 +356,7 @@ export async function runToolLoop(
         }
 
         const fullJson = JSON.stringify(result);
-        const forModel =
-          fullJson.length > 4000
-            ? fullJson.slice(0, 4000) +
-              `... [truncated ${fullJson.length - 4000} chars]`
-            : fullJson;
+        const forModel = capToolText(fullJson);
         state.messages.push({
           role: "tool",
           content: forModel,

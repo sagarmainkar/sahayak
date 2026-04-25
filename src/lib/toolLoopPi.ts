@@ -179,6 +179,14 @@ function attachTranslator(
           content: text,
           thinking,
           toolCalls: toolCalls.length ? toolCalls : undefined,
+          // pi-ai's StopReason is one of:
+          //   "stop"     — clean finish, model decided
+          //   "length"   — hit max_tokens; reply was cut off
+          //   "toolUse"  — round paused for tool execution (next round will follow)
+          //   "error" / "aborted" — handled above
+          // Plumb this so the UI can highlight a Continue button when
+          // the model stopped because it ran out of token budget.
+          stopReason: msg.stopReason,
         });
         return;
       }

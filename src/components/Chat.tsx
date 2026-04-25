@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, Plus, Pencil, Trash2, Wrench, PanelLeft, Download,
-  RotateCcw, Loader2, Pin, FileText, Search, X as XIcon,
+  RotateCcw, Loader2, Pin, FileText, Search, X as XIcon, ArrowRight,
 } from "lucide-react";
 import { Markdown } from "./Markdown";
 import { ThemeToggle } from "./ThemeToggle";
@@ -56,6 +56,7 @@ const Turn = memo(function Turn({
   streaming = false,
   assistant,
   onRedo,
+  onContinue,
   sessionId,
   onArtifactAutoFix,
 }: {
@@ -63,6 +64,10 @@ const Turn = memo(function Turn({
   streaming?: boolean;
   assistant: Assistant;
   onRedo?: () => void;
+  /** When provided, renders a Continue button below the assistant
+   *  turn. Highlighted differently when the model stopped because
+   *  it ran out of token budget (stopReason === "length"). */
+  onContinue?: () => void;
   sessionId?: string | null;
   onArtifactAutoFix?: (error: string) => void;
 }) {
@@ -209,10 +214,53 @@ const Turn = memo(function Turn({
             composing…
           </div>
         ) : null}
+
+        {onContinue && !streaming && (
+          <ContinueButton
+            stopReason={m.stopReason}
+            onClick={onContinue}
+          />
+        )}
       </div>
     </article>
   );
 });
+
+/** Tiny button rendered under the last assistant turn, nudging the
+ *  model to keep going. When stopReason === "length" we know the
+ *  reply was hard-cut by max_tokens, so the button is amber + more
+ *  emphatic. Otherwise it's neutral and unobtrusive. */
+function ContinueButton({
+  stopReason,
+  onClick,
+}: {
+  stopReason?: ChatMessage["stopReason"];
+  onClick: () => void;
+}) {
+  const cutOff = stopReason === "length";
+  return (
+    <div className="mt-3 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-sans text-[11.5px] transition-colors",
+          cutOff
+            ? "border-amber-500/40 bg-amber-500/10 text-amber-700 hover:border-amber-500 hover:bg-amber-500/20 dark:text-amber-300"
+            : "border-border bg-bg-paper text-fg-muted hover:border-accent hover:text-fg",
+        )}
+      >
+        <ArrowRight className="h-3 w-3" />
+        Continue
+      </button>
+      {cutOff && (
+        <span className="font-serif text-[11px] italic text-amber-700 dark:text-amber-400">
+          response hit max-tokens
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function Chat({ assistantId, sessionId: initialSessionId }: Props) {
   const confirm = useConfirm();
@@ -770,10 +818,34 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               thinking: (cur.thinking ?? "") + String(obj.delta ?? ""),
             });
           } else if (t === "done_turn") {
-            lastTokens = {
+            const incoming = {
               prompt: Number(obj.promptTokens ?? 0),
               completion: Number(obj.completionTokens ?? 0),
             };
+            // Monotonic guard within a streaming turn. Pi-agent-core
+            // emits message_end per LLM round in a multi-tool turn;
+            // each round's prompt should be ≥ the previous one
+            // (conversation only grows). If we see a smaller value,
+            // it's almost certainly a usage-reporting glitch from
+            // the backend (e.g. KV-cache eviction, truncation, or a
+            // round that skipped the usage field). Keep the high
+            // water mark so the pie doesn't lie.
+            if (incoming.prompt >= lastTokens.prompt) {
+              lastTokens = incoming;
+            } else {
+              console.warn(
+                "[ctx-guard] non-monotonic done_turn ignored: prompt %d → %d (kept %d)",
+                lastTokens.prompt,
+                incoming.prompt,
+                lastTokens.prompt,
+              );
+              // Still update completion — that's per-round, not
+              // cumulative, so a drop there is normal.
+              lastTokens = {
+                prompt: lastTokens.prompt,
+                completion: incoming.completion,
+              };
+            }
             setCtx(lastTokens);
             // Stash this turn's output tokens on the assistant message
             // so the Turn timeline can render tokens/sec after the
@@ -791,6 +863,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   ? String(obj.thinking)
                   : cur.thinking,
               toolCalls: obj.toolCalls as ChatMessage["toolCalls"],
+              ...(typeof obj.stopReason === "string"
+                ? { stopReason: obj.stopReason as ChatMessage["stopReason"] }
+                : {}),
             });
           } else if (t === "tool_call") {
             // Use the server's toolCallId as the React id so tool_result
@@ -1043,6 +1118,21 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     );
   }
 
+  /** Nudge the model to keep going. Used when the user thinks the
+   *  reply was cut short (max_tokens) or the model just stopped
+   *  abruptly. Sends a fresh user turn with a short directive that
+   *  most models recognise. We intentionally don't truncate the
+   *  prior assistant message — the model continues *from* it,
+   *  appending in a new message. */
+  async function continueLast() {
+    if (streaming) return;
+    await handleSend(
+      "Continue from where you stopped — pick up exactly where the last response ended, no recap.",
+      [],
+      lastArtifactsEnabledRef.current,
+    );
+  }
+
   async function newSession() {
     setSessionId(null);
     setMessages([]);
@@ -1267,7 +1357,27 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       };
       const next = [compactMsg, ...keep];
       setMessages(next);
-      await persist(sessionId, next, ctx);
+      // Recompute ctx from the post-compact conversation. The
+      // summariser's own done_turn left `ctx` reflecting ITS api
+      // call (~5k prompt + ~3k summary), not the new conversation
+      // state. Without this override the pie shows a misleading
+      // "drop" after compact — and we'd persist that wrong number
+      // to session.meta. Estimate via chars/4; the next real user
+      // turn's done_turn will replace this with the model's
+      // authoritative count.
+      const estimateTokens = (s: string) => Math.ceil(s.length / 4);
+      const newCtx = {
+        prompt: next.reduce(
+          (sum, m) =>
+            sum +
+            estimateTokens(m.content ?? "") +
+            estimateTokens(m.thinking ?? ""),
+          0,
+        ),
+        completion: 0,
+      };
+      setCtx(newCtx);
+      await persist(sessionId, next, newCtx);
     } catch (e) {
       // Revert — remove the placeholder, restore original messages — and
       // surface the failure inline as a system note (no browser alert).
@@ -1719,6 +1829,15 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   }
                   return -1;
                 })();
+                // Last assistant message — anchor for the Continue
+                // button so it only appears at the bottom of the
+                // most-recent assistant turn.
+                const lastAssistantIdx = (() => {
+                  for (let i = messages.length - 1; i >= 0; i--) {
+                    if (messages[i].role === "assistant") return i;
+                  }
+                  return -1;
+                })();
                 // Tracks whether we've already seen a user message so the
                 // fleuron rule only appears BETWEEN exchanges, not above
                 // the very first one.
@@ -1745,6 +1864,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                       onRedo={
                         !streaming && i === lastUserIdx
                           ? redoLastUser
+                          : undefined
+                      }
+                      onContinue={
+                        !streaming &&
+                        i === lastAssistantIdx &&
+                        m.role === "assistant"
+                          ? continueLast
                           : undefined
                       }
                       onArtifactAutoFix={handleArtifactAutoFix}

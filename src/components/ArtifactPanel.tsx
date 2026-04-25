@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   X, RefreshCw, Code2, Download, Copy, Maximize2, Minimize2, Check,
-  Wand2, Camera, Loader2,
+  Wand2, Camera, Loader2, AlertTriangle,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { useArtifactPanel } from "./ArtifactPanelContext";
@@ -121,7 +121,13 @@ export function ArtifactPanel({
       { cache: "no-store" },
     )
       .then((r) => r.json())
-      .then((d: { artifact: Artifact }) => setArtifact(d.artifact));
+      .then((d: { artifact: Artifact }) => {
+        setArtifact(d.artifact);
+        // When the artifact has a known parse error, default to the
+        // source view — running it in the iframe would just throw.
+        // User can flip back via the Code toggle if they want.
+        if (d.artifact?.validationError) setShowSource(true);
+      });
   }, [openId, refreshKey, scope]);
 
   // Bridge: iframe → parent → /api/artifact-data
@@ -365,6 +371,42 @@ export function ArtifactPanel({
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {/* validation banner — shown when the artifact was saved with
+          a Babel parse error. Source view is auto-selected on load
+          (above) so the iframe doesn't try to render broken JSX.
+          The "Ask to fix" button on the toolbar (gated on
+          runtimeError) doesn't catch this case, so we mirror it
+          here. */}
+      {artifact?.validationError && (
+        <div className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0 flex-1">
+              <div className="byline mb-0.5">parse error · won't render</div>
+              <div className="font-mono text-[11.5px] leading-snug text-fg-muted">
+                {artifact.validationError}
+              </div>
+              {onFixRequest && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (artifact.validationError) {
+                      onFixRequest(
+                        `The previous artifact failed to compile:\n\n${artifact.validationError}\n\nPlease re-emit a corrected react-artifact fence with the same id (\`${artifact.id}\`).`,
+                      );
+                    }
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-sans text-[11px] text-amber-700 hover:border-amber-500 hover:bg-amber-500/20 dark:text-amber-300"
+                >
+                  <Wand2 className="h-3 w-3" />
+                  Ask to fix
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* body */}
       <div className="flex-1 overflow-hidden">
