@@ -7,7 +7,11 @@ import {
   type ClientMsg,
 } from "@/lib/toolLoop";
 import { startPiRun } from "@/lib/toolLoopPi";
-import { buildAlwaysInjectedBlock } from "@/lib/memory";
+import {
+  buildAlwaysInjectedBlock,
+  getRecallContext,
+  retryPendingVectors,
+} from "@/lib/memory";
 import { deriveCtxModel } from "@/lib/ollama";
 import { normalizeOpenAiBaseUrl } from "@/lib/piAdapters";
 import type { AssistantProvider } from "@/lib/types";
@@ -67,14 +71,37 @@ export async function POST(req: Request) {
     ? injectArtifactInstructions(body.messages)
     : body.messages;
 
-  // Always-on memory: prepend facts + preferences to the system prompt.
-  // Computed fresh on every request so edits in /memory reflect
-  // immediately, no session re-open required. The other memory types
-  // (episodic / procedural / event / semantic) stay retrieval-on-demand
-  // via the recall_memory tool.
+  // ── Memory: always-on injection + per-turn auto-recall + save nudge ──
+  // buildAlwaysInjectedBlock — pinned facts + preferences (cap 50/50).
+  // getRecallContext — top-3 over threshold 0.7 against the user's latest
+  //   message (excludes already-pinned types).
+  // Nudge — every 4th user turn, opaque save-check the model can act on.
+  // retryPendingVectors — best-effort: re-embed up to 5 entries that
+  //   failed indexing previously. Fire-and-forget; doesn't block.
   const memBlock = await buildAlwaysInjectedBlock();
-  const systemWithMemory = memBlock
-    ? `${memBlock}\n\n---\n\n${body.system ?? ""}`.trim()
+  const lastUser = [...clientMsgs]
+    .reverse()
+    .find((m) => m.role === "user");
+  const userMessageText =
+    typeof lastUser?.content === "string" ? lastUser.content : "";
+  const recallBlock = userMessageText
+    ? await getRecallContext(userMessageText)
+    : "";
+  const userTurnCount = clientMsgs.filter((m) => m.role === "user").length;
+  const NUDGE_EVERY = 4;
+  const nudge =
+    userTurnCount > 0 && userTurnCount % NUDGE_EVERY === 0
+      ? "[memory check: if anything durable about the user, their environment, or their lasting preferences has emerged in this conversation that wasn't already saved, call remember now. Otherwise reply normally.]"
+      : "";
+  retryPendingVectors(5).catch(() => {});
+
+  const parts: string[] = [];
+  if (memBlock) parts.push(memBlock);
+  if (recallBlock) parts.push(recallBlock);
+  if (body.system) parts.push(body.system);
+  if (nudge) parts.push(nudge);
+  const systemWithMemory = parts.length
+    ? parts.join("\n\n---\n\n").trim()
     : body.system;
 
   const provider: AssistantProvider = body.provider ?? "ollama";
