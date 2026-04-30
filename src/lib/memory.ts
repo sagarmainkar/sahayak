@@ -485,11 +485,17 @@ export async function getRecallContext(
   if (top.length === 0) return "";
 
   // Fire-and-forget: bump recall timestamps for the surfaced ids.
-  void bumpRecalledAt(top.map((h) => h.entry.id));
+  bumpRecalledAt(top.map((h) => h.entry.id)).catch((err) => {
+    console.warn("[memory] bumpRecalledAt failed:", err);
+  });
 
   const lines: string[] = ["Possibly relevant from memory:"];
   for (const h of top) {
-    lines.push(`- [${h.entry.type}] ${h.entry.content}`);
+    const safe = h.entry.content
+      .replace(/\s+/g, " ")
+      .replace(/`/g, "'")
+      .trim();
+    lines.push(`- [${h.entry.type}] ${safe}`);
   }
   return lines.join("\n");
 }
