@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Brain, Plus, Trash2, Search, RefreshCw, CheckSquare, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { fmtRelative } from "@/lib/fmt";
-import { MEMORY_TYPES, type MemoryEntry, type MemoryType } from "@/lib/types";
+import {
+  ACTIVE_MEMORY_TYPES,
+  MEMORY_TYPES,
+  type ActiveMemoryType,
+  type MemoryEntry,
+  type MemoryType,
+} from "@/lib/types";
 import { useConfirm } from "./ConfirmDialog";
 
 type SearchHit = { entry: MemoryEntry; score: number };
@@ -24,7 +30,7 @@ export function MemoryPage() {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
-  const [addType, setAddType] = useState<MemoryType>("fact");
+  const [addType, setAddType] = useState<ActiveMemoryType>("fact");
   const [addContent, setAddContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
@@ -32,11 +38,22 @@ export function MemoryPage() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [deletingBulk, setDeletingBulk] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<MemoryType | null>(null);
+  const [recalledMap, setRecalledMap] = useState<Record<string, number>>({});
 
   async function refresh() {
     const r = await fetch("/api/memory");
     const d = (await r.json()) as { memories: MemoryEntry[] };
     setMemories(d.memories);
+    try {
+      const rr = await fetch("/api/memory/recalled-at");
+      if (rr.ok) {
+        const dd = (await rr.json()) as { recalledAt: Record<string, number> };
+        setRecalledMap(dd.recalledAt ?? {});
+      }
+    } catch {
+      // best-effort; UI still renders without recall stats
+    }
   }
 
   useEffect(() => {
@@ -240,10 +257,10 @@ export function MemoryPage() {
         <div className="flex flex-col gap-2 sm:flex-row">
           <select
             value={addType}
-            onChange={(e) => setAddType(e.target.value as MemoryType)}
+            onChange={(e) => setAddType(e.target.value as ActiveMemoryType)}
             className="rounded border border-border bg-bg px-2 py-2 font-mono text-[12px] focus:border-accent focus:outline-none sm:w-36"
           >
-            {MEMORY_TYPES.map((t) => (
+            {ACTIVE_MEMORY_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
@@ -317,6 +334,42 @@ export function MemoryPage() {
         )}
       </section>
 
+      <section className="mb-4 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setTypeFilter(null)}
+          className={cn(
+            "rounded-full border px-3 py-1 font-mono text-[11px]",
+            typeFilter === null
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-border text-fg-muted hover:border-accent",
+          )}
+        >
+          all · {totals.total}
+        </button>
+        {MEMORY_TYPES.map((t) => {
+          const n = totals.byType[t];
+          if (n === 0) return null;
+          const isActive =
+            (ACTIVE_MEMORY_TYPES as readonly string[]).includes(t);
+          return (
+            <button
+              key={t}
+              onClick={() => setTypeFilter(t)}
+              className={cn(
+                "rounded-full border px-3 py-1 font-mono text-[11px]",
+                typeFilter === t
+                  ? "border-accent bg-accent/10 text-accent"
+                  : isActive
+                    ? "border-border text-fg-muted hover:border-accent"
+                    : "border-border/50 text-fg-subtle italic hover:border-accent",
+              )}
+            >
+              {t} · {n}
+            </button>
+          );
+        })}
+      </section>
+
       {memories === null ? (
         <div className="font-serif italic text-fg-muted">loading…</div>
       ) : memories.length === 0 ? (
@@ -332,6 +385,7 @@ export function MemoryPage() {
       ) : (
         <div className="space-y-6">
           {MEMORY_TYPES.map((t) => {
+            if (typeFilter && typeFilter !== t) return null;
             const items = grouped[t];
             if (items.length === 0) return null;
             return (
@@ -391,6 +445,11 @@ export function MemoryPage() {
                         {/* Relative time is a desktop nicety — hide on
                             mobile so content isn't competing with
                             metadata for the narrow row. */}
+                        <span className="hidden flex-shrink-0 font-mono text-[10.5px] tabular-nums text-fg-subtle sm:inline">
+                          {recalledMap[m.id]
+                            ? `recalled ${fmtRelative(recalledMap[m.id])}`
+                            : "never recalled"}
+                        </span>
                         <span className="hidden flex-shrink-0 font-mono text-[10.5px] tabular-nums text-fg-subtle sm:inline">
                           {fmtRelative(m.updatedAt)}
                         </span>
