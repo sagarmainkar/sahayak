@@ -47,6 +47,32 @@ export function SettingsPage() {
     deletedArtifacts: number;
     freedBytes: number;
   } | null>(null);
+  const [memoryHealth, setMemoryHealth] = useState<{
+    total: number;
+    indexed: number;
+    pending: number;
+    lastRebuildAt: number | null;
+  } | null>(null);
+  const [rebuildingMem, setRebuildingMem] = useState(false);
+
+  async function loadMemoryHealth() {
+    try {
+      const r = await fetch("/api/memory/health");
+      if (r.ok) setMemoryHealth(await r.json());
+    } catch {
+      // best-effort; UI shows skeleton
+    }
+  }
+
+  async function rebuildMemoryIndex() {
+    setRebuildingMem(true);
+    try {
+      await fetch("/api/memory/rebuild", { method: "POST" });
+      await loadMemoryHealth();
+    } finally {
+      setRebuildingMem(false);
+    }
+  }
 
   async function loadCleanup() {
     setCleanupLoading(true);
@@ -88,6 +114,7 @@ export function SettingsPage() {
       .then((r) => r.json())
       .then((d: { settings: Settings }) => setSettings(d.settings));
     loadCleanup();
+    loadMemoryHealth();
   }, []);
 
   async function patchSettings(patch: Partial<Settings>) {
@@ -137,6 +164,61 @@ export function SettingsPage() {
           /api/tts routes + src/lib/useSpeaker.ts + TTS settings type
           remain in the repo, so reverting this file is enough to
           bring the UI back. See git history for the original JSX. */}
+
+      <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="byline">Memory health</h2>
+          <button
+            onClick={loadMemoryHealth}
+            className="tt flex items-center gap-1 rounded border border-border px-2 py-0.5 font-sans text-[10.5px] text-fg-muted hover:border-accent hover:text-fg"
+            data-tip="Refresh"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Refresh
+          </button>
+        </div>
+        {memoryHealth ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="total" value={memoryHealth.total} />
+            <Stat label="indexed" value={memoryHealth.indexed} />
+            <Stat
+              label="pending"
+              value={memoryHealth.pending}
+              warn={memoryHealth.pending > 0}
+            />
+            <Stat
+              label="last rebuild"
+              value={
+                memoryHealth.lastRebuildAt
+                  ? fmtRelative(memoryHealth.lastRebuildAt)
+                  : "—"
+              }
+            />
+          </div>
+        ) : (
+          <div className="font-serif italic text-fg-muted">loading…</div>
+        )}
+        {memoryHealth && memoryHealth.pending > 0 && (
+          <p className="mt-3 font-serif text-[12.5px] italic text-fg-muted">
+            {memoryHealth.pending} entr
+            {memoryHealth.pending === 1 ? "y is" : "ies are"} unindexed —
+            usually because Ollama or the embed model was unavailable when
+            saved. They&apos;ll be retried on every chat turn; or hit Rebuild.
+          </p>
+        )}
+        <div className="mt-3">
+          <button
+            onClick={rebuildMemoryIndex}
+            disabled={rebuildingMem}
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50"
+          >
+            <RefreshCw
+              className={cn("h-3.5 w-3.5", rebuildingMem && "animate-spin")}
+            />
+            {rebuildingMem ? "rebuilding…" : "Rebuild index"}
+          </button>
+        </div>
+      </section>
 
       <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
         <div className="mb-3 flex items-center justify-between">
@@ -816,3 +898,28 @@ function McpServersSection() {
   );
 }
 
+function Stat({
+  label,
+  value,
+  warn,
+}: {
+  label: string;
+  value: number | string;
+  warn?: boolean;
+}) {
+  return (
+    <div className="rounded border border-border bg-bg p-3">
+      <div className="font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+        {label}
+      </div>
+      <div
+        className={cn(
+          "mt-1 font-mono text-[16px] tabular-nums",
+          warn ? "text-amber-600 dark:text-amber-400" : "text-fg",
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
