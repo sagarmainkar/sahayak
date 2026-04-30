@@ -10,7 +10,7 @@ export function ThemeToggle() {
   useEffect(() => setMounted(true), []);
 
   if (!mounted) {
-    return <div className="h-7 w-7" />;
+    return <div className="h-10 w-10" />;
   }
 
   const next =
@@ -22,7 +22,7 @@ export function ThemeToggle() {
       onClick={() => setTheme(next)}
       aria-label={`Switch to ${next} theme`}
       title={`Theme: ${theme} · click for ${next}`}
-      className="inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+      className="inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
     >
       <Icon className="h-3.5 w-3.5" />
     </button>

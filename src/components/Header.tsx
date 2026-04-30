@@ -19,21 +19,21 @@ export function Header({ children }: { children?: React.ReactNode }) {
       <div className="flex flex-1 items-center gap-2">{children}</div>
       <Link
         href="/memory"
-        className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+        className="tt inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
         data-tip="Memory"
       >
         <Brain className="h-3.5 w-3.5" />
       </Link>
       <Link
         href="/stats"
-        className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+        className="tt inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
         data-tip="Stats"
       >
         <BarChart3 className="h-3.5 w-3.5" />
       </Link>
       <Link
         href="/settings"
-        className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+        className="tt inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
         data-tip="Settings"
       >
         <SettingsIcon className="h-3.5 w-3.5" />

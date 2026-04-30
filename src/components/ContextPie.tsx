@@ -194,7 +194,7 @@ export function ContextPie({
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="tt flex h-7 w-7 flex-shrink-0 items-center justify-center rounded hover:bg-bg-muted"
+        className="tt flex h-10 w-10 flex-shrink-0 items-center justify-center rounded hover:bg-bg-muted"
         data-tip={`Context · ${pct.toFixed(0)}% · ${used.toLocaleString()} / ${total.toLocaleString()}`}
         aria-label="Context usage"
         aria-expanded={open}

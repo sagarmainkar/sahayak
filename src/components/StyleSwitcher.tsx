@@ -105,7 +105,7 @@ export function StyleSwitcher() {
         ref={btnRef}
         onClick={() => setOpen((v) => !v)}
         title="Change style"
-        className="tt inline-flex h-7 w-7 items-center justify-center rounded text-fg-muted hover:bg-bg-muted hover:text-fg"
+        className="tt inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted hover:bg-bg-muted hover:text-fg"
         data-tip="Style"
       >
         <Palette className="h-3.5 w-3.5" />
