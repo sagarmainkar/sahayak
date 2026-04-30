@@ -145,6 +145,16 @@ export const MEMORY_TYPES = [
 ] as const;
 export type MemoryType = (typeof MEMORY_TYPES)[number];
 
+/** Types Sahayak surfaces for new entries. The full `MEMORY_TYPES` list
+ *  is retained for read-tolerance of legacy log entries; the model and
+ *  the MemoryPage "add" form should only offer active types. */
+export const ACTIVE_MEMORY_TYPES = [
+  "fact",
+  "preference",
+  "procedural",
+] as const;
+export type ActiveMemoryType = (typeof ACTIVE_MEMORY_TYPES)[number];
+
 export type MemoryEntry = {
   id: string;
   type: MemoryType;
@@ -153,5 +163,9 @@ export type MemoryEntry = {
   sessionId?: string;
   createdAt: number;
   updatedAt: number;
+  /** Set true when the entry was created/updated but embedding failed
+   *  (Ollama down, model missing, etc.). The chat route runs a periodic
+   *  retry that clears this flag and appends to the vector sidecar. */
+  vectorPending?: boolean;
 };
 
