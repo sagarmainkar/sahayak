@@ -18,7 +18,7 @@
   /* Fluid type scale: clamp(min, fluid, max). Min hits at ~320px, max
      at ~1024px+. clamp() smooths the in-between with no breakpoint
      cliffs and no JS. */
-  --fs-prose:    clamp(13px,    0.6vw + 12px, 14.5px);
+  --fs-prose:    clamp(13px,    0.5vw + 12px, 16px);
   --fs-byline:   clamp(10.5px,  0.3vw + 10px, 11px);
   --fs-h3:       clamp(16px,    1vw + 14px,   20px);
   --fs-h2:       clamp(18px,    1.5vw + 14px, 24px);
@@ -54,7 +54,6 @@
   --font-sans: var(--stack-sans);
   --font-mono: var(--stack-mono);
   --prose-font: var(--stack-serif);
-  --prose-size: 16px;
   --prose-leading: 1.68;
 }
 .dark.theme-correspondence,
@@ -105,7 +104,6 @@
   --font-sans: var(--stack-mono);
   --font-mono: var(--stack-mono);
   --prose-font: var(--stack-mono);
-  --prose-size: 13.5px;
   --prose-leading: 1.55;
 }
 .dark.theme-terminal {
@@ -154,7 +152,6 @@
   --font-sans: var(--stack-sans);
   --font-mono: var(--stack-mono);
   --prose-font: var(--stack-serif);
-  --prose-size: 16px;
   --prose-leading: 1.72;
 }
 .dark.theme-editorial {
