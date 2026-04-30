@@ -442,3 +442,54 @@ export async function buildAlwaysInjectedBlock(): Promise<string> {
   }
   return parts.join("\n");
 }
+
+const RECALL_DEFAULT_K = 3;
+const RECALL_DEFAULT_THRESHOLD = 0.7;
+const PINNED_TYPES: ReadonlySet<MemoryType> = new Set(["fact", "preference"]);
+
+/** Score `userMessage` against the memory pool and return a formatted
+ *  block ready to prepend to the system prompt. Empty string when no
+ *  memory clears the threshold or embedding fails. */
+export async function getRecallContext(
+  userMessage: string,
+  opts?: {
+    k?: number;
+    threshold?: number;
+    /** When true (default), skip fact + preference — they're already in
+     *  the always-injected block, no point doubling tokens. */
+    excludePinnedTypes?: boolean;
+  },
+): Promise<string> {
+  const q = userMessage.trim();
+  if (!q) return "";
+  const qVec = await embedText(q);
+  if (!qVec) return "";
+
+  const k = opts?.k ?? RECALL_DEFAULT_K;
+  const threshold = opts?.threshold ?? RECALL_DEFAULT_THRESHOLD;
+  const excludePinned = opts?.excludePinnedTypes ?? true;
+
+  const memories = await listMemories();
+  const vectors = await readVectors();
+  const hits: { entry: MemoryEntry; score: number }[] = [];
+  for (const m of memories) {
+    if (excludePinned && PINNED_TYPES.has(m.type)) continue;
+    const v = vectors.get(m.id);
+    if (!v) continue;
+    const score = cosine(qVec, v);
+    if (score < threshold) continue;
+    hits.push({ entry: m, score });
+  }
+  hits.sort((a, b) => b.score - a.score);
+  const top = hits.slice(0, k);
+  if (top.length === 0) return "";
+
+  // Fire-and-forget: bump recall timestamps for the surfaced ids.
+  void bumpRecalledAt(top.map((h) => h.entry.id));
+
+  const lines: string[] = ["Possibly relevant from memory:"];
+  for (const h of top) {
+    lines.push(`- [${h.entry.type}] ${h.entry.content}`);
+  }
+  return lines.join("\n");
+}
