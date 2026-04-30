@@ -29,7 +29,7 @@ type UpdateRec = {
 type DeleteRec = { op: "delete"; id: string; at: number };
 type LogRec = CreateRec | UpdateRec | DeleteRec;
 
-type VecRec = { id: string; vector: number[] };
+type VecRec = { id: string; vector: number[]; lastRecalledAt?: number };
 
 async function ensureDirs() {
   await fs.mkdir(CONFIG_DIR, { recursive: true });
@@ -88,19 +88,31 @@ export async function getMemory(id: string): Promise<MemoryEntry | null> {
 
 // ---------- vector sidecar ----------
 
-async function readVectors(): Promise<Map<string, number[]>> {
+type SidecarMap = Map<string, { vector: number[]; lastRecalledAt?: number }>;
+
+async function readSidecar(): Promise<SidecarMap> {
   if (!existsSync(VEC_FILE)) return new Map();
   const raw = await fs.readFile(VEC_FILE, "utf8");
-  const out = new Map<string, number[]>();
+  const out: SidecarMap = new Map();
   for (const line of raw.split("\n")) {
     if (!line.trim()) continue;
     try {
       const r = JSON.parse(line) as VecRec;
-      out.set(r.id, r.vector);
+      out.set(r.id, {
+        vector: r.vector,
+        lastRecalledAt: r.lastRecalledAt,
+      });
     } catch {
       continue;
     }
   }
+  return out;
+}
+
+async function readVectors(): Promise<Map<string, number[]>> {
+  const sidecar = await readSidecar();
+  const out = new Map<string, number[]>();
+  for (const [id, v] of sidecar) out.set(id, v.vector);
   return out;
 }
 
@@ -110,11 +122,17 @@ async function appendVector(rec: VecRec) {
 }
 
 /** Rewrite the vector sidecar from a fresh map. Used on rebuild and delete. */
-async function writeVectors(map: Map<string, number[]>) {
+async function writeVectors(
+  map: Map<string, number[]>,
+  meta?: Map<string, { lastRecalledAt?: number }>,
+) {
   await ensureDirs();
   const lines: string[] = [];
   for (const [id, vector] of map) {
-    lines.push(JSON.stringify({ id, vector } satisfies VecRec));
+    const m = meta?.get(id);
+    const rec: VecRec = { id, vector };
+    if (m?.lastRecalledAt !== undefined) rec.lastRecalledAt = m.lastRecalledAt;
+    lines.push(JSON.stringify(rec));
   }
   await fs.writeFile(VEC_FILE, lines.length ? lines.join("\n") + "\n" : "");
 }
@@ -233,9 +251,18 @@ export async function updateMemory(
   if (content !== cur.content) {
     const vec = await embedText(content);
     if (vec) {
-      const map = await readVectors();
-      map.set(id, vec);
-      await writeVectors(map);
+      const sidecar = await readSidecar();
+      const prev = sidecar.get(id);
+      const vectors = new Map<string, number[]>();
+      const meta = new Map<string, { lastRecalledAt?: number }>();
+      for (const [sid, sv] of sidecar) {
+        vectors.set(sid, sv.vector);
+        if (sv.lastRecalledAt !== undefined)
+          meta.set(sid, { lastRecalledAt: sv.lastRecalledAt });
+      }
+      vectors.set(id, vec);
+      meta.set(id, { lastRecalledAt: prev?.lastRecalledAt });
+      await writeVectors(vectors, meta);
       vectorPending = false;
     } else {
       vectorPending = true;
@@ -348,6 +375,49 @@ export async function retryPendingVectors(
     cleared++;
   }
   return { retried: pending.length, cleared };
+}
+
+const BUMP_DEBOUNCE_MS = 60_000;
+
+/** Update `lastRecalledAt` for a set of memory ids in the vector sidecar.
+ *  Debounced: ids whose existing timestamp is younger than 60s are skipped
+ *  to avoid hot-loops on repeated short queries. */
+export async function bumpRecalledAt(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const sidecar = await readSidecar();
+  const now = Date.now();
+  let changed = false;
+  for (const id of ids) {
+    const cur = sidecar.get(id);
+    if (!cur) continue;
+    if (cur.lastRecalledAt && now - cur.lastRecalledAt < BUMP_DEBOUNCE_MS) {
+      continue;
+    }
+    cur.lastRecalledAt = now;
+    sidecar.set(id, cur);
+    changed = true;
+  }
+  if (!changed) return;
+  const vectors = new Map<string, number[]>();
+  const meta = new Map<string, { lastRecalledAt?: number }>();
+  for (const [id, v] of sidecar) {
+    vectors.set(id, v.vector);
+    if (v.lastRecalledAt !== undefined) {
+      meta.set(id, { lastRecalledAt: v.lastRecalledAt });
+    }
+  }
+  await writeVectors(vectors, meta);
+}
+
+/** Expose `lastRecalledAt` for the UI without dragging the sidecar map
+ *  through API serialization. Returns a plain id → ts mapping. */
+export async function getRecalledAtMap(): Promise<Record<string, number>> {
+  const sidecar = await readSidecar();
+  const out: Record<string, number> = {};
+  for (const [id, v] of sidecar) {
+    if (v.lastRecalledAt !== undefined) out[id] = v.lastRecalledAt;
+  }
+  return out;
 }
 
 /**
