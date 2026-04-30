@@ -3,10 +3,15 @@ import {
   listMemories,
   searchMemory,
 } from "@/lib/memory";
-import { MEMORY_TYPES, type MemoryType } from "@/lib/types";
+import {
+  ACTIVE_MEMORY_TYPES,
+  MEMORY_TYPES,
+  type MemoryType,
+} from "@/lib/types";
 import { err, ok, type ToolSpec } from "./types";
 
 const TYPE_ENUM = MEMORY_TYPES as readonly string[];
+const ACTIVE_TYPE_ENUM = ACTIVE_MEMORY_TYPES as readonly string[];
 
 function coerceType(t: unknown): MemoryType | null {
   return typeof t === "string" && TYPE_ENUM.includes(t)
@@ -14,19 +19,25 @@ function coerceType(t: unknown): MemoryType | null {
     : null;
 }
 
+const SOFT_CAP = 200;
+
 export const remember: ToolSpec = {
   name: "remember",
   group: "memory",
   description:
-    "Save a durable note to the cross-session memory pool. Only call this when the user explicitly asks you to remember something ('remember that...', 'from now on...'), or they state something clearly stable about themselves/their work that is worth recalling in future chats. Do not save conversational trivia or one-off context.",
+    "Save a durable memory about the user. " +
+    "Save ONLY: stable facts about the user or their environment they have asserted; lasting preferences they have stated; commands or how-tos the user wants you to reuse across sessions. " +
+    "Do NOT save: third-party facts you can re-derive (stock symbols, news, public knowledge); session content (what we just discussed, current task state); anything the user did not explicitly assert about themselves or their setup. " +
+    "If unsure, do not save — memory is for the user, not the world. " +
+    "Memory is auto-recalled before every turn, so duplicates are silently absorbed; you do not need to search before saving.",
   parameters: {
     type: "object",
     properties: {
       type: {
         type: "string",
         description:
-          "fact = stable truth; preference = how the user likes things; episodic = dated experience; procedural = how-to; event = time-bound happening; semantic = general world knowledge",
-        enum: [...TYPE_ENUM],
+          "fact = stable truth about the user/their setup; preference = how they like things; procedural = a command or how-to to reuse",
+        enum: [...ACTIVE_TYPE_ENUM],
       },
       content: {
         type: "string",
@@ -38,16 +49,24 @@ export const remember: ToolSpec = {
   },
   async handler(args) {
     const type = coerceType(args.type);
-    if (!type) return err("bad_type", `type must be one of ${TYPE_ENUM.join(",")}`);
+    if (!type) {
+      return err(
+        "bad_type",
+        `type must be one of ${ACTIVE_TYPE_ENUM.join(",")}`,
+      );
+    }
     const content = String(args.content ?? "").trim();
     if (!content) return err("empty_content", "content is required");
     const result = await createMemory({ type, content, source: "model" });
-    return ok({
+    const total = (await listMemories()).length;
+    const out: Record<string, unknown> = {
       id: result.entry.id,
       type: result.entry.type,
       content: result.entry.content,
       status: result.status,
-    });
+    };
+    if (total > SOFT_CAP) out.pleaseReview = true;
+    return ok(out);
   },
 };
 
