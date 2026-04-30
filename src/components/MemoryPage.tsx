@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Plus, Trash2, Search, RefreshCw } from "lucide-react";
+import { Brain, Plus, Trash2, Search, RefreshCw, CheckSquare, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { fmtRelative } from "@/lib/fmt";
 import { MEMORY_TYPES, type MemoryEntry, type MemoryType } from "@/lib/types";
@@ -29,6 +29,9 @@ export function MemoryPage() {
   const [saving, setSaving] = useState(false);
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildMsg, setRebuildMsg] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deletingBulk, setDeletingBulk] = useState(false);
 
   async function refresh() {
     const r = await fetch("/api/memory");
@@ -90,6 +93,43 @@ export function MemoryPage() {
     await refresh();
   }
 
+  function toggleSelect(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelect() {
+    setSelecting(false);
+    setSelected(new Set());
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    const noun = ids.length === 1 ? "memory" : "memories";
+    if (
+      !(await confirm({
+        message: `Delete ${ids.length} ${noun}?`,
+        tone: "danger",
+      }))
+    )
+      return;
+    setDeletingBulk(true);
+    try {
+      await Promise.all(
+        ids.map((id) => fetch(`/api/memory/${id}`, { method: "DELETE" })),
+      );
+      exitSelect();
+      await refresh();
+    } finally {
+      setDeletingBulk(false);
+    }
+  }
+
   async function rebuild() {
     setRebuilding(true);
     setRebuildMsg(null);
@@ -145,17 +185,54 @@ export function MemoryPage() {
               .join(" · ") || "nothing yet"}
           </p>
         </div>
-        <button
-          onClick={rebuild}
-          disabled={rebuilding}
-          className="tt flex w-max items-center gap-1.5 self-start rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50 sm:self-auto"
-          data-tip="Recompute all embeddings"
-        >
-          <RefreshCw
-            className={cn("h-3.5 w-3.5", rebuilding && "animate-spin")}
-          />
-          {rebuildMsg ?? (rebuilding ? "rebuilding…" : "Rebuild index")}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {selecting ? (
+            <>
+              <span className="font-mono text-[11.5px] tabular-nums text-fg-muted">
+                {selected.size} selected
+              </span>
+              <button
+                onClick={deleteSelected}
+                disabled={selected.size === 0 || deletingBulk}
+                className="flex items-center gap-1.5 rounded-md border border-red-500/40 bg-red-500/5 px-3 py-2 font-sans text-[11.5px] text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {deletingBulk ? "deleting…" : "Delete"}
+              </button>
+              <button
+                onClick={exitSelect}
+                disabled={deletingBulk}
+                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50"
+              >
+                <X className="h-3.5 w-3.5" />
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setSelecting(true)}
+                disabled={!memories?.length}
+                className="tt flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50"
+                data-tip="Select multiple to delete"
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+                Select
+              </button>
+              <button
+                onClick={rebuild}
+                disabled={rebuilding}
+                className="tt flex items-center gap-1.5 rounded-md border border-border px-3 py-2 font-sans text-[11.5px] text-fg-muted hover:border-accent hover:text-fg disabled:opacity-50"
+                data-tip="Recompute all embeddings"
+              >
+                <RefreshCw
+                  className={cn("h-3.5 w-3.5", rebuilding && "animate-spin")}
+                />
+                {rebuildMsg ?? (rebuilding ? "rebuilding…" : "Rebuild index")}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <section className="mb-6 rounded-lg border border-border bg-bg-elev p-4">
@@ -268,44 +345,68 @@ export function MemoryPage() {
                   </span>
                 </div>
                 <ul className="space-y-1.5">
-                  {items.map((m) => (
-                    <li
-                      key={m.id}
-                      className="group flex items-start gap-2 rounded border border-border bg-bg-paper px-3 py-2 sm:gap-3"
-                    >
-                      {/* min-w-0 so flex-1 can actually shrink to
-                          viewport width; break-words so a long URL or
-                          hash in the content wraps onto the next line
-                          instead of pushing the container wider. */}
-                      <span className="min-w-0 flex-1 break-words font-serif text-[13.5px] leading-[1.5] text-fg">
-                        {m.content}
-                      </span>
-                      <span
+                  {items.map((m) => {
+                    const isSelected = selected.has(m.id);
+                    return (
+                      <li
+                        key={m.id}
+                        onClick={
+                          selecting ? () => toggleSelect(m.id) : undefined
+                        }
                         className={cn(
-                          "flex-shrink-0 rounded px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider",
-                          m.source === "model"
-                            ? "bg-accent/10 text-accent"
-                            : "bg-bg-muted text-fg-subtle",
+                          "group flex items-start gap-2 rounded border bg-bg-paper px-3 py-2 sm:gap-3",
+                          selecting && "cursor-pointer",
+                          isSelected
+                            ? "border-accent bg-accent/5"
+                            : "border-border",
                         )}
                       >
-                        {m.source}
-                      </span>
-                      {/* Relative time is a desktop nicety — hide on
-                          mobile so content isn't competing with
-                          metadata for the narrow row. */}
-                      <span className="hidden flex-shrink-0 font-mono text-[10.5px] tabular-nums text-fg-subtle sm:inline">
-                        {fmtRelative(m.updatedAt)}
-                      </span>
-                      <button
-                        onClick={() => remove(m.id)}
-                        className="tt flex-shrink-0 rounded p-1 text-fg-subtle transition-opacity hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
-                        data-tip="Delete"
-                        aria-label="Delete memory"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </li>
-                  ))}
+                        {selecting && (
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(m.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-1 h-3.5 w-3.5 flex-shrink-0 accent-accent"
+                            aria-label="Select memory"
+                          />
+                        )}
+                        {/* min-w-0 so flex-1 can actually shrink to
+                            viewport width; break-words so a long URL or
+                            hash in the content wraps onto the next line
+                            instead of pushing the container wider. */}
+                        <span className="min-w-0 flex-1 break-words font-serif text-[13.5px] leading-[1.5] text-fg">
+                          {m.content}
+                        </span>
+                        <span
+                          className={cn(
+                            "flex-shrink-0 rounded px-1.5 py-0.5 font-mono text-[9.5px] uppercase tracking-wider",
+                            m.source === "model"
+                              ? "bg-accent/10 text-accent"
+                              : "bg-bg-muted text-fg-subtle",
+                          )}
+                        >
+                          {m.source}
+                        </span>
+                        {/* Relative time is a desktop nicety — hide on
+                            mobile so content isn't competing with
+                            metadata for the narrow row. */}
+                        <span className="hidden flex-shrink-0 font-mono text-[10.5px] tabular-nums text-fg-subtle sm:inline">
+                          {fmtRelative(m.updatedAt)}
+                        </span>
+                        {!selecting && (
+                          <button
+                            onClick={() => remove(m.id)}
+                            className="tt flex-shrink-0 rounded p-1 text-fg-subtle transition-opacity hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
+                            data-tip="Delete"
+                            aria-label="Delete memory"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             );
