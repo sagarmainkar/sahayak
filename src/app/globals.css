@@ -14,6 +14,16 @@
     var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   --stack-mono:
     var(--font-mono), "JetBrains Mono", ui-monospace, monospace;
+
+  /* Fluid type scale: clamp(min, fluid, max). Min hits at ~320px, max
+     at ~1024px+. clamp() smooths the in-between with no breakpoint
+     cliffs and no JS. */
+  --fs-prose:    clamp(13px,    0.6vw + 12px, 14.5px);
+  --fs-byline:   clamp(10.5px,  0.3vw + 10px, 11px);
+  --fs-h3:       clamp(16px,    1vw + 14px,   20px);
+  --fs-h2:       clamp(18px,    1.5vw + 14px, 24px);
+  --fs-h1:       clamp(24px,    3vw + 18px,   40px);
+  --fs-mono:     clamp(12px,    0.5vw + 11px, 13px);
 }
 
 /* =====================================================
@@ -297,7 +307,7 @@ body::before {
    ===================================================== */
 .prose {
   font-family: var(--prose-font);
-  font-size: var(--prose-size);
+  font-size: var(--fs-prose);
   line-height: var(--prose-leading);
   color: var(--fg);
   font-variant-numeric: oldstyle-nums proportional-nums;
@@ -328,14 +338,14 @@ body::before {
   margin: 1.2em 0 0.4em;
 }
 .prose h1 {
-  font-size: 1.65em;
+  font-size: var(--fs-h1);
   font-variation-settings: "opsz" 144, "SOFT" 30;
 }
 .prose h2 {
-  font-size: 1.35em;
+  font-size: var(--fs-h2);
   font-variation-settings: "opsz" 120;
 }
-.prose h3 { font-size: 1.15em; }
+.prose h3 { font-size: var(--fs-h3); }
 .prose h4 { font-size: 1em; }
 
 .prose strong { font-weight: 620; color: var(--fg); }
@@ -388,7 +398,7 @@ body::before {
 }
 .prose pre {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--fs-mono);
   line-height: 1.55;
   padding: 0;
   background: transparent;
@@ -400,7 +410,7 @@ body::before {
   background: transparent;
   border: 0;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--fs-mono);
 }
 
 .prose :where(table) {
