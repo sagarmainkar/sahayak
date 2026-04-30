@@ -1409,7 +1409,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
   if (!assistant) {
     return (
-      <div className="flex h-screen items-center justify-center font-serif italic text-fg-muted">
+      <div className="flex h-dvh items-center justify-center font-serif italic text-fg-muted">
         loading…
       </div>
     );

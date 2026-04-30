@@ -46,9 +46,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${serif.variable} ${mono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${serif.variable} ${mono.variable} min-h-dvh antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-bg text-fg font-sans">
+      <body className="min-h-dvh flex flex-col bg-bg text-fg font-sans">
         <ThemeProvider>
           <ConfirmDialogProvider>
             <ArtifactPanelProvider>{children}</ArtifactPanelProvider>

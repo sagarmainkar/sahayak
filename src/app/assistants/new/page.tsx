@@ -5,7 +5,7 @@ import { AssistantEditor } from "@/components/AssistantEditor";
 
 export default function NewAssistantPage() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <Header />
       <main className="flex-1">
         <AssistantEditor />
