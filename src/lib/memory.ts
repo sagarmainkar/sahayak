@@ -24,6 +24,7 @@ type UpdateRec = {
   content: string;
   type?: MemoryType;
   updatedAt: number;
+  vectorPending?: boolean;
 };
 type DeleteRec = { op: "delete"; id: string; at: number };
 type LogRec = CreateRec | UpdateRec | DeleteRec;
@@ -60,7 +61,7 @@ export async function listMemories(): Promise<MemoryEntry[]> {
   const byId = new Map<string, MemoryEntry>();
   for (const rec of log) {
     if (rec.op === "create") {
-      byId.set(rec.entry.id, rec.entry);
+      byId.set(rec.entry.id, { ...rec.entry });
     } else if (rec.op === "update") {
       const cur = byId.get(rec.id);
       if (!cur) continue;
@@ -69,6 +70,9 @@ export async function listMemories(): Promise<MemoryEntry[]> {
         content: rec.content,
         type: rec.type ?? cur.type,
         updatedAt: rec.updatedAt,
+        ...(rec.vectorPending !== undefined
+          ? { vectorPending: rec.vectorPending }
+          : {}),
       });
     } else if (rec.op === "delete") {
       byId.delete(rec.id);
@@ -202,7 +206,6 @@ export async function createMemory(input: {
   if (candidateVec) {
     await appendVector({ id: entry.id, vector: candidateVec });
   } else {
-    // Embedding failed — mark pending so the retry loop picks it up later.
     entry.vectorPending = true;
     await appendLog({
       op: "update",
@@ -210,6 +213,7 @@ export async function createMemory(input: {
       content: entry.content,
       type: entry.type,
       updatedAt: now,
+      vectorPending: true,
     });
   }
   return { status: "created", entry };
@@ -224,17 +228,35 @@ export async function updateMemory(
   const content = patch.content?.trim() ?? cur.content;
   const type = patch.type ?? cur.type;
   const updatedAt = Date.now();
-  await appendLog({ op: "update", id, content, type, updatedAt });
+
+  let vectorPending: boolean | undefined;
   if (content !== cur.content) {
     const vec = await embedText(content);
     if (vec) {
-      // Rewrite sidecar with the updated vector for this id.
       const map = await readVectors();
       map.set(id, vec);
       await writeVectors(map);
+      vectorPending = false;
+    } else {
+      vectorPending = true;
     }
   }
-  return { ...cur, content, type, updatedAt };
+
+  await appendLog({
+    op: "update",
+    id,
+    content,
+    type,
+    updatedAt,
+    ...(vectorPending !== undefined ? { vectorPending } : {}),
+  });
+  return {
+    ...cur,
+    content,
+    type,
+    updatedAt,
+    ...(vectorPending !== undefined ? { vectorPending } : {}),
+  };
 }
 
 export async function deleteMemory(id: string): Promise<boolean> {
@@ -299,6 +321,33 @@ export async function rebuildVectors(): Promise<{
 
 export function isValidMemoryType(t: unknown): t is MemoryType {
   return isMemoryType(t);
+}
+
+/** Best-effort retry: pick up to `cap` entries with `vectorPending: true`,
+ *  embed each, append to the sidecar, and emit an `update` log record
+ *  clearing the flag. Called by the chat route per request. Failures stay
+ *  pending and are picked up next time. */
+export async function retryPendingVectors(
+  cap = 5,
+): Promise<{ retried: number; cleared: number }> {
+  const memories = await listMemories();
+  const pending = memories.filter((m) => m.vectorPending).slice(0, cap);
+  let cleared = 0;
+  for (const m of pending) {
+    const vec = await embedText(m.content);
+    if (!vec) continue;
+    await appendVector({ id: m.id, vector: vec });
+    await appendLog({
+      op: "update",
+      id: m.id,
+      content: m.content,
+      type: m.type,
+      updatedAt: Date.now(),
+      vectorPending: false,
+    });
+    cleared++;
+  }
+  return { retried: pending.length, cleared };
 }
 
 /**
