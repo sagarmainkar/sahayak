@@ -79,7 +79,10 @@ export async function POST(req: Request) {
   // retryPendingVectors — best-effort: re-embed up to 5 entries that
   //   failed indexing previously. Fire-and-forget; doesn't block.
   const memBlock = await buildAlwaysInjectedBlock();
-  const lastUser = [...clientMsgs]
+  // Recall query should be the user's actual prompt, not the
+  // artifact-augmented version that goes to the model. Read from
+  // body.messages (pre-injection) rather than clientMsgs.
+  const lastUser = [...body.messages]
     .reverse()
     .find((m) => m.role === "user");
   const userMessageText =
@@ -93,7 +96,9 @@ export async function POST(req: Request) {
     userTurnCount > 0 && userTurnCount % NUDGE_EVERY === 0
       ? "[memory check: if anything durable about the user, their environment, or their lasting preferences has emerged in this conversation that wasn't already saved, call remember now. Otherwise reply normally.]"
       : "";
-  retryPendingVectors(5).catch(() => {});
+  void retryPendingVectors(5).catch((err) => {
+    console.warn("[memory] retryPendingVectors failed:", err);
+  });
 
   const parts: string[] = [];
   if (memBlock) parts.push(memBlock);
