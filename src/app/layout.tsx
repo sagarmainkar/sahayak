@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Geist,
   Geist_Mono,
@@ -39,6 +39,12 @@ export const metadata: Metadata = {
   description: "Your local AI assistants",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -48,7 +54,7 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${serif.variable} ${mono.variable} min-h-dvh antialiased`}
     >
-      <body className="min-h-dvh flex flex-col bg-bg text-fg font-sans">
+      <body className="min-h-dvh flex flex-col bg-bg text-fg font-sans pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
         <ThemeProvider>
           <ConfirmDialogProvider>
             <ArtifactPanelProvider>{children}</ArtifactPanelProvider>
