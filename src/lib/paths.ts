@@ -35,6 +35,7 @@ export const MCP_FILE = path.join(CONFIG_DIR, "mcp.json");
 export const SETTINGS_FILE = path.join(CONFIG_DIR, "settings.json");
 export const MEMORY_FILE = path.join(CONFIG_DIR, "memory.jsonl");
 export const MEMORY_VEC_FILE = path.join(CONFIG_DIR, "memory.vec.jsonl");
+export const MEMORY_META_FILE = path.join(CONFIG_DIR, "memory.meta.json");
 
 // ── .data/ sweep marker ──────────────────────────────────────────────
 export const LAST_CLEANUP_MARKER = path.join(DATA_DIR, ".last_cleanup");

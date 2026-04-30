@@ -11,6 +11,7 @@ import {
 import {
   CONFIG_DIR,
   MEMORY_FILE,
+  MEMORY_META_FILE,
   MEMORY_VEC_FILE as VEC_FILE,
 } from "@/lib/paths";
 
@@ -333,6 +334,7 @@ export async function searchMemory(
 export async function rebuildVectors(): Promise<{
   indexed: number;
   skipped: number;
+  lastRebuildAt: number;
 }> {
   const memories = await listMemories();
   const map = new Map<string, number[]>();
@@ -343,7 +345,13 @@ export async function rebuildVectors(): Promise<{
     else skipped++;
   }
   await writeVectors(map);
-  return { indexed: map.size, skipped };
+  const lastRebuildAt = Date.now();
+  await ensureDirs();
+  await fs.writeFile(
+    MEMORY_META_FILE,
+    JSON.stringify({ lastRebuildAt }, null, 2),
+  );
+  return { indexed: map.size, skipped, lastRebuildAt };
 }
 
 export function isValidMemoryType(t: unknown): t is MemoryType {
@@ -407,6 +415,41 @@ export async function bumpRecalledAt(ids: string[]): Promise<void> {
     }
   }
   await writeVectors(vectors, meta);
+}
+
+export async function getMemoryHealth(): Promise<{
+  total: number;
+  indexed: number;
+  pending: number;
+  lastRebuildAt: number | null;
+}> {
+  const memories = await listMemories();
+  const vectors = await readVectors();
+  const indexed = memories.reduce(
+    (n, m) => n + (vectors.has(m.id) ? 1 : 0),
+    0,
+  );
+  const pending = memories.reduce(
+    (n, m) => n + (m.vectorPending ? 1 : 0),
+    0,
+  );
+  let lastRebuildAt: number | null = null;
+  if (existsSync(MEMORY_META_FILE)) {
+    try {
+      const raw = await fs.readFile(MEMORY_META_FILE, "utf8");
+      const parsed = JSON.parse(raw) as { lastRebuildAt?: number };
+      if (typeof parsed.lastRebuildAt === "number")
+        lastRebuildAt = parsed.lastRebuildAt;
+    } catch {
+      // fall through with null
+    }
+  }
+  return {
+    total: memories.length,
+    indexed,
+    pending,
+    lastRebuildAt,
+  };
 }
 
 /** Expose `lastRecalledAt` for the UI without dragging the sidecar map
