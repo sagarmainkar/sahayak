@@ -210,6 +210,13 @@ export async function createMemory(input: {
       const existing = memories.find((m) => m.id === bestId);
       if (existing) return { status: "already_known", entry: existing };
     }
+  } else {
+    // Embedder is down — fall back to exact content equality so repeated
+    // saves of the same string while Ollama is offline don't accrete into
+    // permanent duplicates after retry.
+    const memories = await listMemories();
+    const exact = memories.find((m) => m.content === content);
+    if (exact) return { status: "already_known", entry: exact };
   }
 
   const entry: MemoryEntry = {
