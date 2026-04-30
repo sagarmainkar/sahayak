@@ -152,26 +152,67 @@ function isMemoryType(t: unknown): t is MemoryType {
   return typeof t === "string" && (MEMORY_TYPES as readonly string[]).includes(t);
 }
 
+export type CreateResult =
+  | { status: "created"; entry: MemoryEntry }
+  | { status: "already_known"; entry: MemoryEntry };
+
+const DEDUP_THRESHOLD = 0.92;
+
 export async function createMemory(input: {
   type: MemoryType;
   content: string;
   source?: "user" | "model";
   sessionId?: string;
-}): Promise<MemoryEntry> {
+}): Promise<CreateResult> {
   const now = Date.now();
+  const content = input.content.trim();
+
+  // Dedup: embed first, compare to existing vectors, return existing if too close.
+  const candidateVec = await embedText(content);
+  if (candidateVec) {
+    const memories = await listMemories();
+    const vectors = await readVectors();
+    let bestId: string | null = null;
+    let bestScore = 0;
+    for (const m of memories) {
+      const v = vectors.get(m.id);
+      if (!v) continue;
+      const s = cosine(candidateVec, v);
+      if (s > bestScore) {
+        bestScore = s;
+        bestId = m.id;
+      }
+    }
+    if (bestId && bestScore >= DEDUP_THRESHOLD) {
+      const existing = memories.find((m) => m.id === bestId);
+      if (existing) return { status: "already_known", entry: existing };
+    }
+  }
+
   const entry: MemoryEntry = {
     id: nanoid(10),
     type: input.type,
-    content: input.content.trim(),
+    content,
     source: input.source ?? "user",
     sessionId: input.sessionId,
     createdAt: now,
     updatedAt: now,
   };
   await appendLog({ op: "create", entry });
-  const vec = await embedText(entry.content);
-  if (vec) await appendVector({ id: entry.id, vector: vec });
-  return entry;
+  if (candidateVec) {
+    await appendVector({ id: entry.id, vector: candidateVec });
+  } else {
+    // Embedding failed — mark pending so the retry loop picks it up later.
+    entry.vectorPending = true;
+    await appendLog({
+      op: "update",
+      id: entry.id,
+      content: entry.content,
+      type: entry.type,
+      updatedAt: now,
+    });
+  }
+  return { status: "created", entry };
 }
 
 export async function updateMemory(

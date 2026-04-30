@@ -20,11 +20,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "content required" }, { status: 400 });
   }
   const source = body?.source === "model" ? "model" : "user";
-  const entry = await createMemory({
+  const result = await createMemory({
     type,
     content,
     source,
     sessionId: typeof body?.sessionId === "string" ? body.sessionId : undefined,
   });
-  return NextResponse.json({ memory: entry });
+  return NextResponse.json({ memory: result.entry, status: result.status });
 }

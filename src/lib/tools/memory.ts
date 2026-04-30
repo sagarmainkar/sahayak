@@ -41,8 +41,13 @@ export const remember: ToolSpec = {
     if (!type) return err("bad_type", `type must be one of ${TYPE_ENUM.join(",")}`);
     const content = String(args.content ?? "").trim();
     if (!content) return err("empty_content", "content is required");
-    const entry = await createMemory({ type, content, source: "model" });
-    return ok({ id: entry.id, type: entry.type, content: entry.content });
+    const result = await createMemory({ type, content, source: "model" });
+    return ok({
+      id: result.entry.id,
+      type: result.entry.type,
+      content: result.entry.content,
+      status: result.status,
+    });
   },
 };
 
