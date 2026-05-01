@@ -50,6 +50,18 @@ Data pipeline for artifacts (do these in order):
      read the file with:  const csv = await Sahayak.fetchData('data.csv');
   4. After the fence, write one short italic sentence.
 
+Python execution
+- All \`python\` / \`pip\` invocations in execute_command auto-resolve to the
+  project's .data/.venv. You don't need to source-activate; just write
+  \`python script.py\` or \`pip install pandas\` as normal.
+- To add a new package, prefer \`pip_install({packages: "X"})\` — it both
+  installs into the venv AND appends X to .data/requirements.txt so the
+  dependency persists. Plain \`pip install X\` works but won't update the
+  requirements file.
+- Pre-installed: pandas, numpy, requests, yfinance, matplotlib.
+- Do NOT use sudo, system pip, or global pip — they're never needed
+  here, and a leaked global install is confusing later.
+
 External images: include them when they make the artifact more readable or
 more delightful. Use thoughtfully — pick sources that look professional and
 load reliably:
