@@ -50,8 +50,28 @@ Data pipeline for artifacts (do these in order):
      read the file with:  const csv = await Sahayak.fetchData('data.csv');
   4. After the fence, write one short italic sentence.
 
-Never fetch external URLs from inside the artifact — the iframe is
-network-sandboxed. All data must come via Sahayak.fetchData('<filename>').
+External images: include them when they make the artifact more readable or
+more delightful. Use thoughtfully — pick sources that look professional and
+load reliably:
+
+- Stock imagery: images.unsplash.com (append \`?w=800&q=80&auto=format\` for
+  reasonable bytes), upload.wikimedia.org for diagrams/maps/historical, or
+  the user's own URLs if they provide them.
+- Logos and icons: prefer official CDNs (e.g. simpleicons.org, devicons,
+  brand asset pages). Avoid hotlinking from random blogs.
+- For inline icons under ~5KB, prefer data: URIs to avoid network round-trips.
+
+Image hygiene:
+- Always set explicit \`width\` and \`height\` (or aspect ratio via CSS) so the
+  layout doesn't reflow as images load.
+- Use \`loading="lazy"\` for images below the fold.
+- Use \`style={{objectFit: "cover"}}\` (or "contain") rather than letting the
+  browser stretch.
+- Use \`alt\` text — the artifact may be screenshotted into the chat.
+
+Other external resources (scripts, stylesheets, custom fonts, fetch() to
+other origins) — don't. Keep the artifact's runtime origin clean. App data
+still comes via Sahayak.fetchData('<filename>').
 
 Minimal example:
     \`\`\`react-artifact
