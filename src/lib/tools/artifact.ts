@@ -49,27 +49,63 @@ export const artifactCreate: ToolSpec = {
       typeof args.title === "string" && args.title.trim()
         ? args.title.trim()
         : "artifact";
+
+    const sessionArtifactsDir = artifactsDir(ctx.assistantId, ctx.sessionId);
+    let existingIds: string[] = [];
+    try {
+      existingIds = await fs.readdir(sessionArtifactsDir);
+    } catch {
+      // No artifacts dir yet — that's fine, first artifact in the session.
+    }
+
     let id: string;
+    let dedupHit: string | null = null;
+
     if (typeof args.id === "string" && args.id.trim()) {
       const candidate = args.id.trim().toLowerCase();
       if (!validId(candidate)) {
         return err("bad_id", "id must match ^[a-z0-9][a-z0-9-]{0,80}$");
       }
+      // Explicit id given — if it already exists, treat as already_exists.
+      if (existingIds.includes(candidate)) {
+        dedupHit = candidate;
+      }
       id = candidate;
     } else {
-      id = `${slugify(title)}-${nanoid(8).replace(/[^a-z0-9]/gi, "").toLowerCase()}`;
+      // No id — slugify the title and look for an existing artifact whose
+      // id either equals the slug exactly or starts with `<slug>-`. That
+      // catches the model creating successive artifacts with the same
+      // title intent.
+      const slug = slugify(title);
+      const match = existingIds.find(
+        (existing) => existing === slug || existing.startsWith(`${slug}-`),
+      );
+      if (match) {
+        dedupHit = match;
+        id = match;
+      } else {
+        id = `${slug}-${nanoid(8).replace(/[^a-z0-9]/gi, "").toLowerCase()}`;
+      }
     }
+
     const dir = path.join(
       artifactDir(ctx.assistantId, ctx.sessionId, id),
       "files",
     );
     await fs.mkdir(dir, { recursive: true });
-    // Also pre-create the artifact root so later meta.json writes don't
-    // race on parent creation.
-    await fs.mkdir(artifactsDir(ctx.assistantId, ctx.sessionId), {
-      recursive: true,
-    });
+    await fs.mkdir(sessionArtifactsDir, { recursive: true });
+
+    if (dedupHit) {
+      return ok({
+        status: "already_exists",
+        id,
+        files_path: dir,
+        hint: `An artifact with id '${id}' already exists in this session. Update it by writing files into the same files_path and re-emitting the same // id: ${id} in your react-artifact fence — DO NOT call artifact_create again for the same logical artifact.`,
+      });
+    }
+
     return ok({
+      status: "created",
       id,
       files_path: dir,
       hint: `Write data files here with artifact_write_file(id='${id}', filename=..., content=...). Then emit \`\`\`react-artifact with // id: ${id} and call Sahayak.fetchData('<filename>') inside your component.`,
