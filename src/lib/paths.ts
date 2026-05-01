@@ -37,6 +37,14 @@ export const MEMORY_FILE = path.join(CONFIG_DIR, "memory.jsonl");
 export const MEMORY_VEC_FILE = path.join(CONFIG_DIR, "memory.vec.jsonl");
 export const MEMORY_META_FILE = path.join(CONFIG_DIR, "memory.meta.json");
 
+// Project Python venv that the model's execute_command/pip_install
+// invocations resolve to. Distinct from python/.venv (Sahayak's
+// own doc-parser venv) — that one stays at the repo root.
+export const DATA_VENV_DIR = path.join(DATA_DIR, ".venv");
+export const DATA_VENV_PYTHON = path.join(DATA_VENV_DIR, "bin", "python");
+export const DATA_VENV_PIP = path.join(DATA_VENV_DIR, "bin", "pip");
+export const DATA_REQUIREMENTS_FILE = path.join(DATA_DIR, "requirements.txt");
+
 // ── .data/ sweep marker ──────────────────────────────────────────────
 export const LAST_CLEANUP_MARKER = path.join(DATA_DIR, ".last_cleanup");
 
