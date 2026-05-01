@@ -596,3 +596,60 @@ body::before {
   background: color-mix(in oklch, var(--accent) 70%, transparent);
   border-radius: 1px;
 }
+
+/* =====================================================
+   PROSE TABLES — mobile rendering
+   2-col tables: keep <table>, tighten cells.
+   3+col tables: card-stack with column labels via ::before.
+   The data-cols and data-label attributes come from
+   src/components/Markdown.tsx.
+   ===================================================== */
+@media (max-width: 640px) {
+  .prose table[data-cols="2"] {
+    font-size: var(--fs-prose);
+  }
+  .prose table[data-cols="2"] th,
+  .prose table[data-cols="2"] td {
+    padding: 6px 8px;
+  }
+
+  .prose table[data-cols="3+"] {
+    display: block;
+    border: 0;
+  }
+  .prose table[data-cols="3+"] thead {
+    display: none;
+  }
+  .prose table[data-cols="3+"] tbody {
+    display: block;
+  }
+  .prose table[data-cols="3+"] tr {
+    display: block;
+    margin: 0 0 10px 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: var(--bg-paper);
+  }
+  .prose table[data-cols="3+"] td {
+    display: block;
+    padding: 4px 0;
+    border: 0;
+  }
+  .prose table[data-cols="3+"] td::before {
+    content: attr(data-label) ": ";
+    display: inline;
+    font-family: var(--font-sans);
+    font-size: 0.78em;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--fg-subtle);
+    margin-right: 4px;
+  }
+  /* If a td has no data-label (degenerate case from nested tables or
+     tables without headers), skip the label rendering. */
+  .prose table[data-cols="3+"] td:not([data-label])::before {
+    content: "";
+    margin: 0;
+  }
+}
