@@ -36,7 +36,15 @@ export function piModelForOpenAICompat(
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000,
-    maxTokens: 8192,
+    // Output-token cap. 8192 was too tight for rich react-artifact
+    // generations (recharts dashboards + analysis text routinely needed
+    // 15-25k). Models truncating mid-fence triggered the
+    // "Continue erases progress" pathology because the renderer can't
+    // stitch a half-written ```react-artifact fence across messages.
+    // 32k gives headroom for most multi-part artifacts to complete in
+    // one turn. Tune up further if you start seeing length truncations
+    // again — Ollama's local llama.cpp has no hard ceiling here.
+    maxTokens: 32_000,
     compat: {
       supportsStore: false,
       supportsDeveloperRole: false,
