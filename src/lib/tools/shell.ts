@@ -29,7 +29,9 @@ let venvSetupPromise: Promise<{ created: boolean }> | null = null;
  *  skipped `npm run setup:python`. Returns whether we created it,
  *  so the caller can surface a one-line note. */
 async function ensureDataVenv(): Promise<{ created: boolean }> {
-  if (existsSync(DATA_VENV_PYTHON)) return { created: false };
+  // Check the venv dir, not the bin/python symlink — some Python distros
+  // customize whether the unsuffixed `python` link is created.
+  if (existsSync(DATA_VENV_DIR)) return { created: false };
   if (venvSetupPromise) return venvSetupPromise;
   venvSetupPromise = (async () => {
     await fs.mkdir(DATA_DIR, { recursive: true });

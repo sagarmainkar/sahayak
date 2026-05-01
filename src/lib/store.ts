@@ -51,9 +51,13 @@ Data pipeline for artifacts (do these in order):
   4. After the fence, write one short italic sentence.
 
 Python execution
-- All \`python\` / \`pip\` invocations in execute_command auto-resolve to the
-  project's .data/.venv. You don't need to source-activate; just write
-  \`python script.py\` or \`pip install pandas\` as normal.
+- Bare \`python\`, \`python3\`, \`pip\`, or \`pip3\` as the first token of a
+  command segment in execute_command auto-resolves to the project's
+  .data/.venv. Just write \`python script.py\` or \`pip install pandas\`
+  as normal — no source-activate needed.
+- The rewrite does NOT fire for env-prefixed forms (\`PYTHONPATH=.
+  python ...\`) or version-pinned binaries (\`python3.11\`). If you need
+  those, write the bare token instead so the venv is used.
 - To add a new package, prefer \`pip_install({packages: "X"})\` — it both
   installs into the venv AND appends X to .data/requirements.txt so the
   dependency persists. Plain \`pip install X\` works but won't update the
@@ -120,12 +124,36 @@ export async function readAssistants(): Promise<Assistant[]> {
     return [];
   }
   const raw = await fs.readFile(ASSISTANTS_FILE, "utf8");
+  let arr: Assistant[];
   try {
-    const arr = JSON.parse(raw) as Assistant[];
-    return Array.isArray(arr) ? arr : [];
+    const parsed = JSON.parse(raw) as Assistant[];
+    arr = Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
+
+  // One-shot migration: any assistant with execute_command in enabledTools
+  // gets pip_install too. The system prompt now tells the model to prefer
+  // pip_install for persistence; without auto-enable, existing assistants
+  // would silently fall back to plain `pip install` in execute_command
+  // and the requirements.txt update would never happen. Idempotent: if
+  // pip_install is already there, no change is made.
+  let migrated = false;
+  for (const a of arr) {
+    if (
+      Array.isArray(a.enabledTools) &&
+      a.enabledTools.includes("execute_command") &&
+      !a.enabledTools.includes("pip_install")
+    ) {
+      a.enabledTools = [...a.enabledTools, "pip_install"];
+      migrated = true;
+    }
+  }
+  if (migrated) {
+    await writeAssistants(arr);
+  }
+
+  return arr;
 }
 
 export async function writeAssistants(list: Assistant[]) {
