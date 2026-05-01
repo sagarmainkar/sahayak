@@ -772,7 +772,7 @@ export function Composer({
             {streaming ? (
               <button
                 onClick={onAbort}
-                className="ml-auto flex flex-shrink-0 items-center gap-1 rounded border border-border px-2.5 py-1 font-sans text-[11px] text-fg-muted hover:text-red-500"
+                className="ml-auto flex h-10 flex-shrink-0 items-center gap-1.5 rounded border border-border px-3 font-sans text-[12px] text-fg-muted hover:text-red-500"
               >
                 <X className="h-3 w-3" />
                 Stop
@@ -783,7 +783,7 @@ export function Composer({
                 disabled={
                   (!input.trim() && attachments.length === 0) || uploading > 0
                 }
-                className="ml-auto flex flex-shrink-0 items-center gap-1 rounded bg-accent px-3 py-1.5 font-sans text-[11.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
+                className="ml-auto flex h-10 flex-shrink-0 items-center gap-1.5 rounded bg-accent px-4 font-sans text-[12.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
               >
                 <Send className="h-3.5 w-3.5" />
                 Send
@@ -850,6 +850,11 @@ function MobileComposerActions({
           <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent" />
         )}
       </button>
+      {/* Plain absolute positioning is safe here: no ancestor between
+          the Composer wrapper and Chat.tsx's flex column has overflow:
+          hidden. If that changes, switch to createPortal anchored to
+          document.body like the desktop template picker (line ~679)
+          and the Header kebab menu. */}
       {open && (
         <div
           ref={menuRef}
