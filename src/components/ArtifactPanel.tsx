@@ -37,6 +37,7 @@ export function ArtifactPanel({
   const [localRefreshKey, setLocalRefreshKey] = useState(0);
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState<string | null>(null);
   const refreshKey = externalRefreshKey + localRefreshKey;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -49,14 +50,24 @@ export function ArtifactPanel({
   /** Capture the iframe's rendered document to a PNG and hand the
    *  resulting attachment back to the composer. Uses html-to-image on
    *  the iframe's contentDocument.body since the iframe is same-origin
-   *  (/artifact-runtime.html). */
+   *  (/artifact-runtime.html). On failure, surfaces a one-line inline
+   *  alert in the panel header for 4s instead of a silent console.error. */
   async function snapScreenshot() {
     if (!onAttachScreenshot || capturing) return;
+    setCaptureError(null);
     const iframe = iframeRef.current;
     const doc = iframe?.contentDocument;
-    const target = doc?.body;
-    if (!iframe || !doc || !target) {
-      console.error("[artifact screenshot] Cannot access iframe contentDocument — sandbox may block same-origin access");
+    if (!iframe || !doc) {
+      flashCaptureError("Cannot access artifact iframe — try refreshing");
+      return;
+    }
+    if (!iframeReady) {
+      flashCaptureError("Artifact still loading — try again in a moment");
+      return;
+    }
+    const target = doc.body;
+    if (!target || !target.firstElementChild) {
+      flashCaptureError("Artifact rendered with errors — nothing to capture");
       return;
     }
     setCapturing(true);
@@ -102,10 +113,16 @@ export function ArtifactPanel({
       });
       closeIfMobile();
     } catch (e) {
-      console.error("[artifact screenshot]", e);
+      const msg = (e as Error)?.message ?? "Screenshot failed";
+      flashCaptureError(`Screenshot failed: ${msg}`);
     } finally {
       setCapturing(false);
     }
+  }
+
+  function flashCaptureError(msg: string) {
+    setCaptureError(msg);
+    setTimeout(() => setCaptureError(null), 4000);
   }
 
   const isHtmlDoc =
@@ -306,6 +323,14 @@ export function ArtifactPanel({
             className="sm:hidden mx-auto mt-2 mb-1 h-1 w-10 flex-shrink-0 rounded bg-fg-subtle/40 hover:bg-fg-subtle/70"
           />
         )}
+      {captureError && (
+        <div
+          role="alert"
+          className="mx-3 mt-2 rounded border border-red-500/40 bg-red-500/10 px-3 py-1.5 font-sans text-[11.5px] text-red-700 dark:text-red-400"
+        >
+          {captureError}
+        </div>
+      )}
       {/* header */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <div
