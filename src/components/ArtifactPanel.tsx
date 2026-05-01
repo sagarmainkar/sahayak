@@ -40,6 +40,12 @@ export function ArtifactPanel({
   const refreshKey = externalRefreshKey + localRefreshKey;
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  const closeIfMobile = () => {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches) {
+      close();
+    }
+  };
+
   /** Capture the iframe's rendered document to a PNG and hand the
    *  resulting attachment back to the composer. Uses html-to-image on
    *  the iframe's contentDocument.body since the iframe is same-origin
@@ -94,6 +100,7 @@ export function ArtifactPanel({
         filename,
         originalName: file.name,
       });
+      closeIfMobile();
     } catch (e) {
       console.error("[artifact screenshot]", e);
     } finally {
@@ -243,6 +250,7 @@ export function ArtifactPanel({
       `remember the runtime only exposes React, Recharts, Papa, and the ` +
       `Sahayak.fetchData data bridge.`;
     onFixRequest(prompt);
+    closeIfMobile();
     setRuntimeError(null); // dismiss locally; the resend flow will open a new turn
   }
 
