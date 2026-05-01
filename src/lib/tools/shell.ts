@@ -21,33 +21,43 @@ const DEFAULT_REQUIREMENTS = [
   "yfinance",
 ];
 
+/** In-flight venv setup, shared across concurrent callers so we don't
+ *  race two `python3 -m venv` invocations against the same target. */
+let venvSetupPromise: Promise<{ created: boolean }> | null = null;
+
 /** Lazy-create .data/.venv on first Python invocation if the user
  *  skipped `npm run setup:python`. Returns whether we created it,
  *  so the caller can surface a one-line note. */
 async function ensureDataVenv(): Promise<{ created: boolean }> {
   if (existsSync(DATA_VENV_PYTHON)) return { created: false };
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  // Seed requirements.txt if absent.
-  if (!existsSync(DATA_REQUIREMENTS_FILE)) {
-    await fs.writeFile(
-      DATA_REQUIREMENTS_FILE,
-      DEFAULT_REQUIREMENTS.join("\n") + "\n",
+  if (venvSetupPromise) return venvSetupPromise;
+  venvSetupPromise = (async () => {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    if (!existsSync(DATA_REQUIREMENTS_FILE)) {
+      await fs.writeFile(
+        DATA_REQUIREMENTS_FILE,
+        DEFAULT_REQUIREMENTS.join("\n") + "\n",
+      );
+    }
+    await pexec("python3", ["-m", "venv", DATA_VENV_DIR], {
+      timeout: 60_000,
+    });
+    await pexec(DATA_VENV_PYTHON, ["-m", "pip", "install", "--quiet", "--upgrade", "pip"], {
+      timeout: 120_000,
+    });
+    await pexec(
+      DATA_VENV_PYTHON,
+      ["-m", "pip", "install", "--quiet", "-r", DATA_REQUIREMENTS_FILE],
+      { timeout: 600_000 },
     );
-  }
-  // Create venv via system python3.
-  await pexec("python3", ["-m", "venv", DATA_VENV_DIR], {
-    timeout: 60_000,
+    return { created: true };
+  })().finally(() => {
+    // Clear on completion (success or fail) so retries can run after a
+    // fix. The existsSync guard on the next call catches the success
+    // case so we don't redo the install.
+    venvSetupPromise = null;
   });
-  // Upgrade pip and install requirements.
-  await pexec(DATA_VENV_PYTHON, ["-m", "pip", "install", "--quiet", "--upgrade", "pip"], {
-    timeout: 120_000,
-  });
-  await pexec(
-    DATA_VENV_PYTHON,
-    ["-m", "pip", "install", "--quiet", "-r", DATA_REQUIREMENTS_FILE],
-    { timeout: 600_000 },
-  );
-  return { created: true };
+  return venvSetupPromise;
 }
 
 /** Rewrite python/python3/pip/pip3 leading tokens in each shell segment
@@ -140,6 +150,10 @@ export const executeCommand: ToolSpec = {
   },
 };
 
+/** Serializes read-modify-write of .data/requirements.txt across
+ *  concurrent pip_install calls so one merge can't clobber another. */
+let requirementsWriteChain: Promise<void> = Promise.resolve();
+
 export const pipInstall: ToolSpec = {
   name: "pip_install",
   group: "shell",
@@ -178,13 +192,23 @@ export const pipInstall: ToolSpec = {
       // version specifiers and extras), merge with existing, sort,
       // dedupe, write back.
       const installed = packages.map((p) => p.split(/[=<>!~\[]/)[0].trim()).filter(Boolean);
-      let current: string[] = [];
-      if (existsSync(DATA_REQUIREMENTS_FILE)) {
-        const raw = await fs.readFile(DATA_REQUIREMENTS_FILE, "utf8");
-        current = raw.split("\n").map((l) => l.trim()).filter(Boolean);
-      }
-      const merged = Array.from(new Set([...current, ...installed])).sort();
-      await fs.writeFile(DATA_REQUIREMENTS_FILE, merged.join("\n") + "\n");
+
+      // Chain the requirements.txt rewrite so concurrent pip_install
+      // calls don't race the read-modify-write.
+      const writePromise = requirementsWriteChain.then(async () => {
+        let current: string[] = [];
+        if (existsSync(DATA_REQUIREMENTS_FILE)) {
+          const raw = await fs.readFile(DATA_REQUIREMENTS_FILE, "utf8");
+          current = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+        }
+        const merged = Array.from(new Set([...current, ...installed])).sort();
+        await fs.writeFile(DATA_REQUIREMENTS_FILE, merged.join("\n") + "\n");
+      });
+      // Update the chain BEFORE awaiting so the next caller queues behind
+      // us. .catch noop so a single failure doesn't poison the chain
+      // for subsequent calls.
+      requirementsWriteChain = writePromise.catch(() => undefined);
+      await writePromise;
 
       return ok({
         installed,
@@ -198,6 +222,8 @@ export const pipInstall: ToolSpec = {
       return {
         ok: false,
         error: "pip_install_failed",
+        packages,
+        requirements_path: DATA_REQUIREMENTS_FILE,
         exit_code: ex.code ?? -1,
         stdout: (ex.stdout ?? "").slice(0, 64 * 1024),
         stderr: (ex.stderr ?? ex.message ?? "").slice(0, 64 * 1024),
