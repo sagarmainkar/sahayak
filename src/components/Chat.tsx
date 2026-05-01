@@ -1698,7 +1698,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           the screen and spawn a horizontal scrollbar on mobile. */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header
-          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-bg-elev px-3 py-2 md:flex-nowrap md:gap-x-3 md:px-4"
+          className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border bg-bg-elev px-3 py-2 sm:flex-nowrap sm:gap-x-3 sm:px-4"
           style={{
             // Notched phones + mobile browsers where the URL bar
             // slides over the page top. env() is a viewport-aware
@@ -1716,7 +1716,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             <PanelLeft className="h-4 w-4" />
           </button>
           <div
-            className="tt max-w-[140px] truncate rounded-sm bg-bg-paper px-2 py-1 font-mono text-[11px] text-fg-muted md:max-w-none"
+            className="tt max-w-[140px] truncate rounded-sm bg-bg-paper px-2 py-1 font-mono text-[11px] text-fg-muted sm:max-w-none"
             data-tip="Model is set in the assistant editor"
           >
             {activeModel}
@@ -1745,7 +1745,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               canExport={!!sessionId}
             />
           )}
-          <div className="flex items-center gap-1 md:ml-auto">
+          <div className="flex items-center gap-1 sm:ml-auto">
             <button
               onClick={() => setShowTools((v) => !v)}
               className={cn(
@@ -1758,10 +1758,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               aria-label="Toggle tool panel"
             >
               <Wrench className="h-3 w-3" />
-              <span className="hidden md:inline">
+              <span className="hidden sm:inline">
                 Tools · {enabledTools.length}
               </span>
-              <span className="md:hidden">{enabledTools.length}</span>
+              <span className="sm:hidden">{enabledTools.length}</span>
             </button>
             <StyleSwitcher />
             <ThemeToggle />
