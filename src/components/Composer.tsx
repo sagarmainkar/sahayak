@@ -13,6 +13,7 @@ import {
   Lock,
   Unlock,
   LayoutTemplate,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { MEMORY_TYPES, type MemoryType, type MsgAttachment } from "@/lib/types";
@@ -600,7 +601,7 @@ export function Composer({
           {/* Toolbar row lives BELOW the textarea: buttons on the left
               (horizontal-scrollable if they overflow a narrow viewport),
               send on the right. Gives the typing area full width. */}
-          <div className="flex items-center gap-1 border-t border-border/60 px-2 py-1.5">
+          <div className="hidden sm:flex items-center gap-1 border-t border-border/60 px-2 py-1.5">
           <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <label
             className="tt tt-above flex flex-shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
@@ -757,6 +758,38 @@ export function Composer({
             </button>
           )}
           </div>
+          {/* Mobile toolbar: + opens popover with attach/artifact/templates,
+              Send is the primary right-side button. Above sm, the desktop
+              toolbar above renders instead. */}
+          <div className="flex sm:hidden items-center gap-2 border-t border-border/60 px-2 py-1.5">
+            <MobileComposerActions
+              addFiles={addFiles}
+              artifactsEnabled={artifactsEnabled}
+              setArtifactsEnabled={setArtifactsEnabled}
+              activeTemplate={activeTemplate}
+              setActiveTemplate={setActiveTemplate}
+            />
+            {streaming ? (
+              <button
+                onClick={onAbort}
+                className="ml-auto flex flex-shrink-0 items-center gap-1 rounded border border-border px-2.5 py-1 font-sans text-[11px] text-fg-muted hover:text-red-500"
+              >
+                <X className="h-3 w-3" />
+                Stop
+              </button>
+            ) : (
+              <button
+                onClick={submit}
+                disabled={
+                  (!input.trim() && attachments.length === 0) || uploading > 0
+                }
+                className="ml-auto flex flex-shrink-0 items-center gap-1 rounded bg-accent px-3 py-1.5 font-sans text-[11.5px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
+              >
+                <Send className="h-3.5 w-3.5" />
+                Send
+              </button>
+            )}
+          </div>
         </div>
         <div className="mt-1 flex items-center justify-between gap-3 px-1 font-sans text-[10.5px] text-fg-subtle">
           <span>⌘/Ctrl ↵ to send · drag or paste images · ⎋ to stop</span>
@@ -765,6 +798,153 @@ export function Composer({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function MobileComposerActions({
+  addFiles,
+  artifactsEnabled,
+  setArtifactsEnabled,
+  activeTemplate,
+  setActiveTemplate,
+}: {
+  addFiles: (files: FileList | File[]) => void;
+  artifactsEnabled: boolean;
+  setArtifactsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
+  activeTemplate: string | null;
+  setActiveTemplate: React.Dispatch<React.SetStateAction<string | null>>;
+}) {
+  const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const indicatorActive = artifactsEnabled || !!activeTemplate;
+
+  return (
+    <div className="relative">
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="relative flex h-10 w-10 items-center justify-center rounded border border-border bg-bg text-fg-muted hover:bg-bg-muted hover:text-fg"
+        aria-label="Composer actions"
+        aria-expanded={open}
+      >
+        <Plus className="h-4 w-4" />
+        {indicatorActive && (
+          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent" />
+        )}
+      </button>
+      {open && (
+        <div
+          ref={menuRef}
+          className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-lg border border-border bg-bg-elev p-1 shadow-[var(--shadow)]"
+        >
+          <button
+            type="button"
+            onClick={() => {
+              imageInputRef.current?.click();
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-left font-sans text-[13px] text-fg hover:bg-bg-muted"
+          >
+            <Paperclip className="h-3.5 w-3.5 text-fg-muted" />
+            Attach image
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              docInputRef.current?.click();
+              setOpen(false);
+            }}
+            className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-left font-sans text-[13px] text-fg hover:bg-bg-muted"
+          >
+            <FilePlus className="h-3.5 w-3.5 text-fg-muted" />
+            Attach document
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setArtifactsEnabled((v) => !v);
+              setOpen(false);
+            }}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded px-3 py-2 text-left font-sans text-[13px] hover:bg-bg-muted",
+              artifactsEnabled ? "text-accent" : "text-fg",
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Artifact mode {artifactsEnabled ? "· on" : ""}
+          </button>
+          <div className="mt-1 border-t border-border pt-1">
+            <div className="px-3 py-1 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
+              Templates
+            </div>
+            {TEMPLATE_META.map((t) => {
+              const active = activeTemplate === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTemplate(active ? null : t.id);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded px-3 py-2 text-left font-sans text-[12.5px] hover:bg-bg-muted",
+                    active ? "text-accent" : "text-fg",
+                  )}
+                >
+                  <span className="text-[14px]" aria-hidden>{t.icon}</span>
+                  {t.name}
+                  {active && (
+                    <span className="ml-auto font-mono text-[9.5px] uppercase tracking-wider text-accent">
+                      active
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.currentTarget.value = "";
+        }}
+      />
+      <input
+        ref={docInputRef}
+        type="file"
+        accept={DOC_EXTENSIONS}
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) addFiles(e.target.files);
+          e.currentTarget.value = "";
+        }}
+      />
     </div>
   );
 }
