@@ -18,6 +18,17 @@ function validId(id: string) {
   return /^[a-z0-9][a-z0-9-]{0,80}$/.test(id);
 }
 
+/** Strip the trailing 6-12 char alphanumeric nanoid suffix from an
+ *  artifact id, leaving the human-meaningful slug stem. Used by dedup
+ *  to compare slug intents, not the random suffix. Conservative: only
+ *  strips when the trailing segment is short and all-alphanumeric and
+ *  the id has more than one segment, so a hand-typed id like
+ *  `report-2024` is left alone. */
+function canonicalStem(id: string): string {
+  const m = id.match(/^(.+)-([a-z0-9]{6,12})$/);
+  return m ? m[1] : id;
+}
+
 export const artifactCreate: ToolSpec = {
   name: "artifact_create",
   group: "fs",
@@ -72,14 +83,23 @@ export const artifactCreate: ToolSpec = {
       }
       id = candidate;
     } else {
-      // No id — slugify the title and look for an existing artifact whose
-      // id either equals the slug exactly or starts with `<slug>-`. That
-      // catches the model creating successive artifacts with the same
-      // title intent.
+      // No id — slugify the title and dedup bidirectionally against
+      // existing canonical stems. Catches both the "model narrows the
+      // title" case (new slug `powergrid-stock-analysis-dashboard` vs
+      // existing stem `powergrid-stock-analysis`) AND the "model
+      // broadens the title" case (new slug `powergrid` vs existing
+      // stem `powergrid-stock-analysis-dashboard`). Either way the
+      // model is iterating one logical artifact and we want them to
+      // collapse onto the existing folder.
       const slug = slugify(title);
-      const match = existingIds.find(
-        (existing) => existing === slug || existing.startsWith(`${slug}-`),
-      );
+      const match = existingIds.find((existing) => {
+        const stem = canonicalStem(existing);
+        return (
+          stem === slug ||
+          stem.startsWith(`${slug}-`) ||
+          slug.startsWith(`${stem}-`)
+        );
+      });
       if (match) {
         dedupHit = match;
         id = match;
