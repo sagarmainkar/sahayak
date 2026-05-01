@@ -92,7 +92,55 @@ async function main() {
   console.log("  installing requirements");
   await run(VENV_PY, ["-m", "pip", "install", "--quiet", "-r", REQ]);
 
-  console.log("✓ done. Sahayak can now parse encrypted PDFs and rich Office files.");
+  console.log("✓ python/.venv ready (officeparser + encrypted PDFs).");
+
+  // Phase 2: project Python venv at .data/.venv that the model's
+  // execute_command/pip_install resolves to. Distinct from python/.venv
+  // (Sahayak-internal). Lives under .data/ so it's gitignored and grows
+  // with the user's session deps.
+  const DATA_DIR = process.env.SAHAYAK_DATA_DIR ?? path.join(ROOT, ".data");
+  const DATA_VENV = path.join(DATA_DIR, ".venv");
+  const DATA_VENV_PY = IS_WIN
+    ? path.join(DATA_VENV, "Scripts", "python.exe")
+    : path.join(DATA_VENV, "bin", "python3");
+  const DATA_REQ = path.join(DATA_DIR, "requirements.txt");
+
+  const fsPromises = await import("node:fs/promises");
+  await fsPromises.mkdir(DATA_DIR, { recursive: true });
+
+  if (!existsSync(DATA_REQ)) {
+    console.log(`  seeding ${path.relative(ROOT, DATA_REQ)} with default bundle`);
+    await fsPromises.writeFile(
+      DATA_REQ,
+      ["matplotlib", "numpy", "pandas", "requests", "yfinance"].join("\n") + "\n",
+    );
+  } else {
+    console.log(`  reusing existing ${path.relative(ROOT, DATA_REQ)}`);
+  }
+
+  if (!existsSync(DATA_VENV)) {
+    console.log(`  creating data virtualenv at ${path.relative(ROOT, DATA_VENV)}`);
+    await run(pythonCmd, ["-m", "venv", DATA_VENV]);
+  } else {
+    console.log(`  reusing existing data virtualenv at ${path.relative(ROOT, DATA_VENV)}`);
+  }
+
+  console.log("  upgrading data-venv pip");
+  await run(DATA_VENV_PY, ["-m", "pip", "install", "--quiet", "--upgrade", "pip"]);
+
+  console.log("  installing data requirements (this can take a minute)");
+  await run(DATA_VENV_PY, ["-m", "pip", "install", "--quiet", "-r", DATA_REQ]);
+
+  console.log(
+    `✓ ${path.relative(ROOT, DATA_VENV)} ready with: matplotlib, numpy, pandas, requests, yfinance.`,
+  );
+  console.log("");
+  console.log(
+    "  Done. The model's execute_command auto-resolves python/pip to .data/.venv.",
+  );
+  console.log(
+    "  Use pip_install({packages: \"X\"}) to add new deps — it updates requirements.txt too.",
+  );
 }
 
 main().catch((e) => {
