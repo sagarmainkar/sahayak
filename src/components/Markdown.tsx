@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useMemo, useEffect, useState } from "react";
 import { codeToHtml } from "shiki";
 import { useTheme } from "next-themes";
 import { Check, Copy } from "lucide-react";
@@ -12,6 +12,11 @@ import { ArtifactBlock } from "./ArtifactBlock";
 import { TemplateBlock } from "./TemplateBlock";
 import { SvgBlock } from "./SvgBlock";
 import { MermaidBlock } from "./MermaidBlock";
+
+/** Per-table context: array of column header texts (the first <th> row),
+ *  used by the <td> override to inject a data-label for the mobile
+ *  card-stack CSS rule. */
+const TableHeadersContext = createContext<string[]>([]);
 
 function CodeBlock({
   className,
@@ -257,10 +262,122 @@ export function Markdown({
             if (only) return <LinkCard url={only} />;
             return <p>{kids}</p>;
           },
+          table(props) {
+            // Walk the table's children to find the header row's cell texts,
+            // and count headers to set data-cols. Provide both via context to
+            // child <td>s so they can self-label.
+            const headers = extractTableHeaders(props.children);
+            const cols = headers.length >= 3 ? "3+" : String(headers.length || 2);
+            return (
+              <TableHeadersContext.Provider value={headers}>
+                <table data-cols={cols}>{props.children}</table>
+              </TableHeadersContext.Provider>
+            );
+          },
+          tr(props) {
+            return <TrWithLabels {...props} />;
+          },
+          td(props) {
+            return <TdWithLabel {...props} />;
+          },
         }}
       >
         {processed}
       </ReactMarkdown>
     </div>
   );
+}
+
+/** Walks the table's children for the header row's <th> texts. Tolerant
+ *  of missing thead (returns empty array). */
+function extractTableHeaders(children: React.ReactNode): string[] {
+  const out: string[] = [];
+  function visitElement(el: React.ReactElement<{ children?: React.ReactNode }>) {
+    const type = el.type as string | { name?: string };
+    const tag = typeof type === "string" ? type : type?.name;
+    if (tag === "th") {
+      out.push(reactNodeToText(el.props.children));
+      return;
+    }
+    if (el.props.children) walk(el.props.children);
+  }
+  function walk(node: React.ReactNode) {
+    if (Array.isArray(node)) {
+      for (const c of node) walk(c);
+      return;
+    }
+    if (
+      node &&
+      typeof node === "object" &&
+      "type" in node &&
+      "props" in node
+    ) {
+      visitElement(node as React.ReactElement<{ children?: React.ReactNode }>);
+    }
+  }
+  walk(children);
+  return out;
+}
+
+function reactNodeToText(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(reactNodeToText).join("");
+  if (typeof node === "object" && "props" in node) {
+    return reactNodeToText(
+      (node as React.ReactElement<{ children?: React.ReactNode }>).props.children,
+    );
+  }
+  return "";
+}
+
+/** A <td> wrapper that's a no-op for now — the actual data-label
+ *  injection happens at the <tr> level via cloneElement, which is
+ *  more reliable than trying to compute the column index from inside
+ *  a <td> without sibling visibility. We still need this override so
+ *  react-markdown doesn't strip the data-label that TrWithLabels
+ *  attaches via cloneElement. */
+function TdWithLabel(
+  props: React.ComponentPropsWithoutRef<"td"> & { node?: unknown },
+) {
+  const { node: _ignored, ...rest } = props;
+  return <td {...rest} />;
+}
+
+/** A <tr> that walks its children, finds <td> elements, and injects
+ *  data-label by index from the surrounding TableHeadersContext. */
+function TrWithLabels(props: React.ComponentPropsWithoutRef<"tr"> & { node?: unknown }) {
+  const headers = useContext(TableHeadersContext);
+  const { node: _ignored, children, ...rest } = props;
+  const labeled = useMemo(() => {
+    let tdIndex = 0;
+    function map(node: React.ReactNode): React.ReactNode {
+      if (Array.isArray(node)) return node.map(map);
+      if (
+        node &&
+        typeof node === "object" &&
+        "type" in node &&
+        "props" in node
+      ) {
+        const el = node as React.ReactElement<{
+          children?: React.ReactNode;
+          [key: string]: unknown;
+        }>;
+        const type = el.type as string | { name?: string };
+        const tag = typeof type === "string" ? type : type?.name;
+        if (tag === "td" || (typeof type === "function" && (type as { name?: string }).name === "TdWithLabel")) {
+          const label = headers[tdIndex] ?? "";
+          tdIndex++;
+          if (!label) return el;
+          return {
+            ...el,
+            props: { ...el.props, "data-label": label },
+          } as React.ReactElement;
+        }
+      }
+      return node;
+    }
+    return map(children);
+  }, [children, headers]);
+  return <tr {...rest}>{labeled}</tr>;
 }
