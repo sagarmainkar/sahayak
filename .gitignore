@@ -51,8 +51,6 @@ next-env.d.ts
 /data
 /data.bak-*
 
-# local screenshots
-/screenshots
 
 # editor
 .vscode/
@@ -82,3 +80,5 @@ next-env.d.ts
 # choose a different location.
 .venv/
 **/.venv/
+
+.superpowers/
