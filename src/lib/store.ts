@@ -40,8 +40,15 @@ export const REACT_ARTIFACT_INSTRUCTIONS = `Interactive artifact requested
   — the runtime rewrites it.
 
 Data pipeline for artifacts (do these in order):
-  1. Call artifact_create({ id, title }) FIRST. It returns the id you must
-     use in the fence. Never make up filesystem paths yourself.
+  1. Call artifact_create({ id, title }) ONCE per chat session. Most prompts
+     — even multi-part reports with charts + indicators + commentary —
+     should produce ONE artifact. Put everything in a single
+     \`function App()\` (compose with sub-components inside). To iterate on
+     an existing artifact (refine the chart, add a panel, change colors),
+     do NOT call artifact_create again with a different title — instead
+     re-emit the \`\`\`react-artifact fence with the SAME // id: as before.
+     If artifact_create returns {status:"already_exists"}, that's normal:
+     reuse the returned id and proceed.
   2. If data needs fetching/compute, use execute_command (python, curl, etc.)
      that WRITES ITS OUTPUT TO STDOUT. Then pass the stdout to:
      artifact_write_file({ id, filename: 'data.csv', content: '<stdout>' })

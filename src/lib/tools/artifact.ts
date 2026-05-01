@@ -120,7 +120,7 @@ export const artifactCreate: ToolSpec = {
         status: "already_exists",
         id,
         files_path: dir,
-        hint: `An artifact with id '${id}' already exists in this session. Update it by writing files into the same files_path and re-emitting the same // id: ${id} in your react-artifact fence — DO NOT call artifact_create again for the same logical artifact.`,
+        hint: `An artifact with id '${id}' already exists in this session. Reuse it: write files into the same files_path and re-emit the same // id: ${id} in your react-artifact fence. Do NOT retry with a different title — title drift fragments your work into orphan folders. Most prompts only need one artifact; compose multi-part reports as sub-components inside a single function App().`,
       });
     }
 
