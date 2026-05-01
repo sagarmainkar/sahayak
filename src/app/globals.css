@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 /* Don't scan docs/ or local brainstorm state — they aren't source code,
- * and stray code-fenced examples (e.g. pt-[env(...)] placeholders) make
- * Tailwind's JIT try to compile invalid classes. */
+ * and stray code-fenced placeholder classes there make Tailwind's JIT
+ * try to compile invalid CSS. */
 @source not "../../docs/**";
 @source not "../../.superpowers/**";
 
