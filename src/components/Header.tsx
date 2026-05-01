@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BarChart3, Brain, Settings as SettingsIcon, MoreVertical } from "lucide-react";
+import { BarChart3, Brain, Settings as SettingsIcon, MoreVertical, Check } from "lucide-react";
+import { useStyleTheme } from "./ThemeProvider";
+import { THEMES } from "@/lib/themes";
+import { cn } from "@/lib/cn";
 import { ThemeToggle } from "./ThemeToggle";
 import { StyleSwitcher } from "./StyleSwitcher";
 
@@ -58,6 +61,7 @@ export function Header({ children }: { children?: React.ReactNode }) {
 
 function KebabMenu() {
   const [open, setOpen] = useState(false);
+  const { styleId, setStyleId } = useStyleTheme();
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -135,9 +139,31 @@ function KebabMenu() {
               <div className="px-3 py-1.5 font-mono text-[10px] uppercase tracking-wider text-fg-subtle">
                 Style
               </div>
-              <div className="px-2 pb-1">
-                <StyleSwitcher />
-              </div>
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setStyleId(t.id);
+                    setOpen(false);
+                  }}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-left hover:bg-bg-muted",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <div className="font-display text-[14px] italic text-fg">
+                      {t.name}
+                    </div>
+                    <div className="font-mono text-[10.5px] text-fg-subtle">
+                      {t.tagline}
+                    </div>
+                  </div>
+                  {styleId === t.id && (
+                    <Check className="h-3.5 w-3.5 flex-shrink-0 text-accent" />
+                  )}
+                </button>
+              ))}
             </div>
           </div>,
           document.body,
