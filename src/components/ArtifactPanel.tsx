@@ -262,17 +262,42 @@ export function ArtifactPanel({
   if (!openId) return null;
 
   return (
-    <aside
-      className={cn(
-        "flex flex-col border-l border-border bg-bg-elev",
-        fullscreen
-          ? "fixed inset-0 z-40 border-0"
-          : // Mobile: full-screen overlay. Desktop (≥md): side column
-            // 50vw-wide, capped at 640px. Fullscreen branch above takes
-            // precedence on either size.
-            "fixed inset-0 z-40 md:static md:z-auto md:w-[min(640px,50vw)]",
+    <>
+      {/* Mobile-only tap-outside overlay. Sits above chat, below sheet.
+          Tapping it dismisses the sheet. Hidden on sm+ (desktop sidebar
+          doesn't need an overlay). */}
+      {!fullscreen && (
+        <div
+          className="sm:hidden fixed inset-0 z-30 bg-black/30 transition-opacity"
+          onClick={() => close()}
+          aria-hidden
+        />
       )}
-    >
+      <aside
+        className={cn(
+          "flex flex-col bg-bg-elev",
+          fullscreen
+            ? "fixed inset-0 z-40 border-0"
+            : [
+                // Mobile (default): bottom sheet, anchored at bottom,
+                // 80dvh tall, rounded top, slides up via translate.
+                "fixed bottom-0 left-0 right-0 z-40 h-[80dvh] rounded-t-xl border-t border-border shadow-xl",
+                // Desktop (sm+): revert to sidebar — static, full-height
+                // column, ~50vw, capped at 640px.
+                "sm:static sm:z-auto sm:bottom-auto sm:left-auto sm:right-auto sm:h-auto sm:rounded-none sm:border-t-0 sm:border-l sm:border-border sm:shadow-none sm:w-[min(640px,50vw)]",
+              ].join(" "),
+        )}
+      >
+        {/* Mobile-only drag handle. Tappable to close. Hidden on sm+ where
+            the panel is a static sidebar. */}
+        {!fullscreen && (
+          <button
+            type="button"
+            onClick={() => close()}
+            aria-label="Close artifact panel"
+            className="sm:hidden mx-auto mt-2 mb-1 h-1 w-10 flex-shrink-0 rounded bg-fg-subtle/40 hover:bg-fg-subtle/70"
+          />
+        )}
       {/* header */}
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <div
@@ -435,5 +460,6 @@ export function ArtifactPanel({
         )}
       </div>
     </aside>
+    </>
   );
 }
