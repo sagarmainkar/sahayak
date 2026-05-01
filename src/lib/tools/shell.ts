@@ -1,8 +1,80 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import { promisify } from "node:util";
+import {
+  DATA_DIR,
+  DATA_REQUIREMENTS_FILE,
+  DATA_VENV_DIR,
+  DATA_VENV_PIP,
+  DATA_VENV_PYTHON,
+} from "@/lib/paths";
 import { err, ok, type ToolSpec } from "./types";
 
 const pexec = promisify(execFile);
+
+const DEFAULT_REQUIREMENTS = [
+  "matplotlib",
+  "numpy",
+  "pandas",
+  "requests",
+  "yfinance",
+];
+
+/** Lazy-create .data/.venv on first Python invocation if the user
+ *  skipped `npm run setup:python`. Returns whether we created it,
+ *  so the caller can surface a one-line note. */
+async function ensureDataVenv(): Promise<{ created: boolean }> {
+  if (existsSync(DATA_VENV_PYTHON)) return { created: false };
+  await fs.mkdir(DATA_DIR, { recursive: true });
+  // Seed requirements.txt if absent.
+  if (!existsSync(DATA_REQUIREMENTS_FILE)) {
+    await fs.writeFile(
+      DATA_REQUIREMENTS_FILE,
+      DEFAULT_REQUIREMENTS.join("\n") + "\n",
+    );
+  }
+  // Create venv via system python3.
+  await pexec("python3", ["-m", "venv", DATA_VENV_DIR], {
+    timeout: 60_000,
+  });
+  // Upgrade pip and install requirements.
+  await pexec(DATA_VENV_PYTHON, ["-m", "pip", "install", "--quiet", "--upgrade", "pip"], {
+    timeout: 120_000,
+  });
+  await pexec(
+    DATA_VENV_PYTHON,
+    ["-m", "pip", "install", "--quiet", "-r", DATA_REQUIREMENTS_FILE],
+    { timeout: 600_000 },
+  );
+  return { created: true };
+}
+
+/** Rewrite python/python3/pip/pip3 leading tokens in each shell segment
+ *  to the venv binaries. Anchored on `^` of each segment after stripping
+ *  leading whitespace. Only the FIRST token of a segment is rewritten. */
+function applyVenvPrefix(cmd: string): { rewritten: string; touched: boolean } {
+  // Split on shell separators while keeping the separators so we can rejoin.
+  const parts = cmd.split(/(\s*(?:&&|\|\||;|\|)\s*)/);
+  let touched = false;
+  const out = parts.map((part) => {
+    // Separator tokens go through unchanged.
+    if (/^\s*(?:&&|\|\||;|\|)\s*$/.test(part)) return part;
+    // Strip leading whitespace, capture it for restoration.
+    const m = part.match(/^(\s*)(\S+)([\s\S]*)$/);
+    if (!m) return part;
+    const [, lead, first, rest] = m;
+    const rewritten = (() => {
+      if (first === "python" || first === "python3") return DATA_VENV_PYTHON;
+      if (first === "pip" || first === "pip3") return DATA_VENV_PIP;
+      return null;
+    })();
+    if (!rewritten) return part;
+    touched = true;
+    return `${lead}${rewritten}${rest}`;
+  });
+  return { rewritten: out.join(""), touched };
+}
 
 export const executeCommand: ToolSpec = {
   name: "execute_command",
@@ -19,12 +91,20 @@ export const executeCommand: ToolSpec = {
   },
   async handler(args) {
     try {
-      const cmd = args.command as string;
-      if (!cmd || typeof cmd !== "string")
+      const cmdRaw = args.command as string;
+      if (!cmdRaw || typeof cmdRaw !== "string")
         return err("bad_args", "command required");
       const timeout =
         Math.max(1, Math.min(120, Number(args.timeout ?? 60))) * 1000;
       const cwd = (args.working_directory as string) || undefined;
+
+      const { rewritten: cmd, touched: pythonRewritten } = applyVenvPrefix(cmdRaw);
+      let venvLazyCreated = false;
+      if (pythonRewritten) {
+        const status = await ensureDataVenv();
+        venvLazyCreated = status.created;
+      }
+
       try {
         const { stdout, stderr } = await pexec("bash", ["-lc", cmd], {
           cwd,
@@ -33,7 +113,9 @@ export const executeCommand: ToolSpec = {
         });
         return {
           ok: true,
-          command: cmd,
+          command: cmdRaw,
+          ...(pythonRewritten ? { python_venv: DATA_VENV_DIR } : {}),
+          ...(venvLazyCreated ? { python_venv_lazy_created: true } : {}),
           cwd: cwd ?? process.cwd(),
           exit_code: 0,
           stdout: stdout.slice(0, 256 * 1024),
@@ -44,7 +126,9 @@ export const executeCommand: ToolSpec = {
         return {
           ok: false,
           error: ex.killed ? "timeout" : "non_zero_exit",
-          command: cmd,
+          command: cmdRaw,
+          ...(pythonRewritten ? { python_venv: DATA_VENV_DIR } : {}),
+          ...(venvLazyCreated ? { python_venv_lazy_created: true } : {}),
           exit_code: ex.code ?? -1,
           stdout: (ex.stdout ?? "").slice(0, 256 * 1024),
           stderr: (ex.stderr ?? ex.message ?? "").slice(0, 256 * 1024),
@@ -52,6 +136,72 @@ export const executeCommand: ToolSpec = {
       }
     } catch (e) {
       return err("internal", (e as Error).message);
+    }
+  },
+};
+
+export const pipInstall: ToolSpec = {
+  name: "pip_install",
+  group: "shell",
+  description:
+    "Install one or more Python packages into the project's .data/.venv AND " +
+    "append them to .data/requirements.txt so the dependency persists across " +
+    "sessions. Prefer this over `pip install` in execute_command — it keeps " +
+    "the requirements file in sync with what's installed.",
+  parameters: {
+    type: "object",
+    properties: {
+      packages: {
+        type: "string",
+        description:
+          "One or more pip package specs separated by spaces, e.g. \"yfinance pandas\" or \"requests==2.31.0\".",
+      },
+    },
+    required: ["packages"],
+  },
+  async handler(args) {
+    const packagesRaw = String(args.packages ?? "").trim();
+    if (!packagesRaw) return err("bad_args", "packages required");
+    const packages = packagesRaw.split(/\s+/).filter(Boolean);
+    if (packages.length === 0) return err("bad_args", "no packages parsed");
+
+    const status = await ensureDataVenv();
+
+    try {
+      const { stdout, stderr } = await pexec(
+        DATA_VENV_PIP,
+        ["install", ...packages],
+        { timeout: 600_000, maxBuffer: 1024 * 1024 },
+      );
+
+      // Append to requirements.txt: extract bare package names (drop
+      // version specifiers and extras), merge with existing, sort,
+      // dedupe, write back.
+      const installed = packages.map((p) => p.split(/[=<>!~\[]/)[0].trim()).filter(Boolean);
+      let current: string[] = [];
+      if (existsSync(DATA_REQUIREMENTS_FILE)) {
+        const raw = await fs.readFile(DATA_REQUIREMENTS_FILE, "utf8");
+        current = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+      }
+      const merged = Array.from(new Set([...current, ...installed])).sort();
+      await fs.writeFile(DATA_REQUIREMENTS_FILE, merged.join("\n") + "\n");
+
+      return ok({
+        installed,
+        requirements_path: DATA_REQUIREMENTS_FILE,
+        venv_lazy_created: status.created,
+        stdout: stdout.slice(0, 64 * 1024),
+        stderr: stderr.slice(0, 64 * 1024),
+      });
+    } catch (e) {
+      const ex = e as { code?: number; stdout?: string; stderr?: string; message?: string };
+      return {
+        ok: false,
+        error: "pip_install_failed",
+        exit_code: ex.code ?? -1,
+        stdout: (ex.stdout ?? "").slice(0, 64 * 1024),
+        stderr: (ex.stderr ?? ex.message ?? "").slice(0, 64 * 1024),
+      };
     }
   },
 };
