@@ -7,7 +7,7 @@ import {
   getFileInfo,
   pathExists,
 } from "./fs";
-import { executeCommand } from "./shell";
+import { executeCommand, pipInstall } from "./shell";
 import { webSearch, webFetch } from "./web";
 import { artifactCreate, artifactWriteFile } from "./artifact";
 import { remember, recallMemory, listAllMemories } from "./memory";
@@ -27,6 +27,7 @@ export const ALL_TOOLS: ToolSpec[] = [
   getFileInfo,
   pathExists,
   executeCommand,
+  pipInstall,
   webSearch,
   webFetch,
   artifactCreate,
