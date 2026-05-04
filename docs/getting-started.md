@@ -15,7 +15,7 @@ These are user-supplied — Sahayak's install script does not install them.
 ## Install Sahayak
 
 ```bash
-git clone https://github.com/<your-fork>/sahayak && cd sahayak
+git clone https://github.com/sagarmainkar/sahayak && cd sahayak
 npm install
 npm run setup:python
 npm run dev   # http://localhost:9999

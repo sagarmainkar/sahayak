@@ -26,7 +26,7 @@ You bring these; we don't install them:
 Sahayak's own install is three commands:
 
 ```bash
-git clone https://github.com/<your-fork>/sahayak && cd sahayak
+git clone https://github.com/sagarmainkar/sahayak && cd sahayak
 npm install && npm run setup:python
 npm run dev   # http://localhost:9999
 ```
@@ -42,7 +42,7 @@ If you're handing this to a coding agent (Claude Code / Codex / Copilot CLI):
 ```bash
 # Agent: run these in order, stop on first error.
 # Prerequisites (Node 20+, Python 3.11+, Ollama or llama.cpp) must already be installed.
-git clone https://github.com/<your-fork>/sahayak && cd sahayak
+git clone https://github.com/sagarmainkar/sahayak && cd sahayak
 npm install && npm run setup:python
 npm run dev
 ```
