@@ -11,30 +11,43 @@ Local-first AI chat with interactive artifacts, cross-session memory, and three 
 - **Interactive artifacts.** Models can emit real React components — Recharts dashboards, filterable tables, rendered SVG, maps — sandboxed in an iframe. The "**Build me a stock analysis dashboard with candlesticks**" workflow is an artifact, not a markdown screenshot of one.
 - **MCP-aware.** Bring your own tool servers via the [Model Context Protocol](https://modelcontextprotocol.io). Configure once in `.config/mcp.json`, they appear in the assistant editor like any built-in tool.
 
-## 60-second install
+## Prerequisites
 
-Prerequisites: Node 20+, Python 3.11+, [Ollama](https://ollama.com/download) running locally on port 11434.
+You bring these; we don't install them:
+
+- **Node 20+** — [nodejs.org](https://nodejs.org)
+- **Python 3.11+** — [python.org](https://www.python.org/downloads/)
+- **A model backend** — at least one of:
+  - **Ollama** ([install](https://ollama.com/download)) — local models, or hosted Ollama Cloud (Kimi, MiniMax, GLM, DeepSeek, etc.)
+  - **llama.cpp** ([install](https://github.com/ggerganov/llama.cpp)) — local gguf models via `llama-server`
+
+## Install
+
+Sahayak's own install is three commands:
 
 ```bash
 git clone https://github.com/<your-fork>/sahayak && cd sahayak
-npm install
-npm run setup:python   # Creates .data/.venv with pandas/numpy/yfinance/...
+npm install && npm run setup:python
+npm run dev   # http://localhost:9999
 ```
 
-Pull a tool-capable model and the embedding model used by memory:
+`npm run setup:python` creates `.data/.venv` (the project Python env the model's `execute_command` resolves to, seeded with pandas / numpy / requests / yfinance / matplotlib). Idempotent — re-run any time.
+
+That's the install. Pulling a model, configuring an Ollama Cloud or llama.cpp assistant, optional MCP servers, troubleshooting — all in [docs/getting-started.md](docs/getting-started.md#first-chat).
+
+### Installing with an agent
+
+If you're handing this to a coding agent (Claude Code / Codex / Copilot CLI):
 
 ```bash
-ollama pull qwen3.5:9b           # any tool-capable model works
-ollama pull nomic-embed-text     # for the memory subsystem
+# Agent: run these in order, stop on first error.
+# Prerequisites (Node 20+, Python 3.11+, Ollama or llama.cpp) must already be installed.
+git clone https://github.com/<your-fork>/sahayak && cd sahayak
+npm install && npm run setup:python
+npm run dev
 ```
 
-Run:
-
-```bash
-npm run dev    # http://localhost:9999
-```
-
-Detail (Windows / Apple Silicon / API keys / hosted Ollama Cloud / MCP) lives in [docs/getting-started.md](docs/getting-started.md).
+Then point the user at http://localhost:9999 and refer them to [docs/getting-started.md](docs/getting-started.md#first-chat) to pick a model.
 
 ## What's in the box
 

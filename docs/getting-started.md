@@ -1,54 +1,60 @@
 # Getting Started
 
-Detailed install, configuration, and troubleshooting. The README's [60-second install](../README.md#60-second-install) is the happy path; this page covers per-platform notes, optional integrations, and common errors.
+Per-platform notes, configuration for the optional integrations (Ollama Cloud, llama.cpp, Gmail, MCP), and troubleshooting. The README's [Install](../README.md#install) section is the happy path; everything beyond that lives here.
 
 ## Prerequisites
 
-- **Node 20+** (we test against 20.18 and 22.x).
-- **Python 3.11+** (for `.data/.venv` — used by `execute_command` when the model runs Python).
-- **Ollama** running on `localhost:11434`. [Install instructions](https://ollama.com/download).
-- A **tool-capable model** pulled. The chat loop only works against models that support function calling — `qwen3.5:9b`, `gemma4:26b`, `llama3.2`, `mistral-nemo` all qualify.
-- The **embedding model** `nomic-embed-text` pulled. Required by the memory subsystem.
+These are user-supplied — Sahayak's install script does not install them.
 
-## Step-by-step install
+- **Node 20+** (we test against 20.18 and 22.x). [nodejs.org](https://nodejs.org)
+- **Python 3.11+** (for `.data/.venv` — used by `execute_command` when the model runs Python). [python.org](https://www.python.org/downloads/)
+- **A model backend** — at least one of:
+  - **Ollama** running on `localhost:11434`. [Install instructions](https://ollama.com/download). Required for hosted Ollama Cloud assistants and the easiest path for local models.
+  - **llama.cpp** with a `llama-server` instance. [Install instructions](https://github.com/ggerganov/llama.cpp). Useful for gguf quants Ollama doesn't ship and for raw performance on Apple Silicon.
 
-### 1. Clone and install JS deps
+## Install Sahayak
 
 ```bash
-git clone https://github.com/<your-fork>/sahayak
-cd sahayak
+git clone https://github.com/<your-fork>/sahayak && cd sahayak
 npm install
-```
-
-### 2. Set up the Python venv
-
-```bash
 npm run setup:python
+npm run dev   # http://localhost:9999
 ```
 
-This script creates two virtualenvs:
+`npm run setup:python` creates two virtualenvs:
 
 - `python/.venv` — Sahayak's internal venv for officeparser + encrypted-PDF support.
 - `.data/.venv` — the venv the model's `execute_command` and `pip_install` resolve to. Seeded with pandas, numpy, requests, yfinance, matplotlib.
 
 Re-run `npm run setup:python` any time — it's idempotent. Adds new deps from `python/requirements.txt` and `.data/requirements.txt` if they've changed.
 
-### 3. Pull a model + the embedding model
+## First chat
+
+First-run flow: visit `localhost:9999`, you'll be prompted to seed an assistant. Before that's useful, pull at least one model.
+
+### Pull a tool-capable model
+
+The chat loop only works against models that support function calling. Tested-good options:
 
 ```bash
-ollama pull qwen3.5:9b           # or your favorite tool-capable model
-ollama pull nomic-embed-text     # for memory; ~270 MB
+ollama pull qwen3.5:9b           # general-purpose default
+# or:
+ollama pull gemma4:26b           # higher quality, more VRAM
+ollama pull llama3.2             # smaller, faster
+ollama pull mistral-nemo         # alternative
 ```
 
-If you skip `nomic-embed-text`, memory writes succeed but recall returns empty. The settings page surfaces "pending" entries (saved but not indexed) and offers a Rebuild button you can use after pulling the model.
-
-### 4. Run
+### Pull the embedding model (for memory)
 
 ```bash
-npm run dev   # http://localhost:9999
+ollama pull nomic-embed-text     # ~270 MB
 ```
 
-First-run flow: visit `localhost:9999`, you'll be prompted to seed an assistant. Pick a name and your model.
+If you skip this, memory writes succeed but recall always returns empty. The Settings page surfaces "pending" entries (saved but not yet indexed) and offers a Rebuild button you can hit after pulling the model.
+
+### Configure your first assistant
+
+In the seed flow, name your assistant and pick the model you pulled. The default provider is `ollama`. Defaults are sane — you can tweak system prompt, tool set, and theme later in the assistant editor.
 
 ## Optional configuration
 
