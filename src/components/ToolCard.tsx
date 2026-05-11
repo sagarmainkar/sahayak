@@ -71,9 +71,11 @@ function summaryFor(name: string, r: Parsed): string {
 function StructuredResult({
   name,
   result,
+  args,
 }: {
   name: string;
   result: Parsed;
+  args?: Record<string, unknown>;
 }) {
   if (!result) return null;
 
@@ -155,10 +157,34 @@ function StructuredResult({
   }
 
   if (name === "execute_command") {
+    const command = (args?.command as string) ?? "";
     const stdout = (result.stdout as string) ?? "";
     const stderr = (result.stderr as string) ?? "";
+    const exitCode = result.exit_code as number | undefined;
     return (
       <div className="space-y-2">
+        {command && (
+          <div>
+            <div className="mb-1 flex items-center gap-1.5 font-sans text-[10px] uppercase tracking-[0.15em] text-fg-subtle">
+              <Terminal className="h-3 w-3" />
+              Command
+            </div>
+            <pre className="whitespace-pre-wrap rounded-sm border border-border/80 bg-bg px-2 py-1.5 font-mono text-[11px] leading-snug text-fg">
+              {command}
+            </pre>
+          </div>
+        )}
+        {typeof exitCode === "number" && (
+          <div className="flex items-center gap-1.5 font-mono text-[11px]">
+            <span className="uppercase tracking-[0.15em] text-fg-subtle">exit code:</span>
+            <span className={cn(
+              "font-bold",
+              exitCode === 0 ? "text-emerald-500" : "text-red-500"
+            )}>
+              {exitCode}
+            </span>
+          </div>
+        )}
         {stdout && (
           <div>
             <div className="mb-1 font-sans text-[10px] uppercase tracking-[0.15em] text-fg-subtle">
@@ -230,12 +256,16 @@ export function ToolCard({
     content, running,
   ]);
   const ok = parsed?.ok ?? undefined;
-  const argPreview = args && Object.keys(args).length
-    ? Object.entries(args)
-        .map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 40)}`)
-        .join(" ")
-        .slice(0, 100)
-    : "";
+  const commandArg = args?.command as string | undefined;
+  const isExecuteCommand = name === "execute_command";
+  const argPreview = isExecuteCommand && commandArg
+    ? commandArg.slice(0, 160)
+    : args && Object.keys(args).length
+      ? Object.entries(args)
+          .map(([k, v]) => `${k}=${JSON.stringify(v).slice(0, 40)}`)
+          .join(" ")
+          .slice(0, 100)
+      : "";
   const summary = summaryFor(name, parsed);
   const Icon = iconFor(name);
 
@@ -252,11 +282,15 @@ export function ToolCard({
       >
         <Icon className="h-3.5 w-3.5 flex-shrink-0 text-fg-subtle" />
         <span className="font-mono text-[11.5px] text-fg">{name}</span>
-        {argPreview && (
+        {isExecuteCommand && commandArg ? (
+          <span className="truncate font-mono text-[11px] text-fg">
+            {commandArg.slice(0, 160)}
+          </span>
+        ) : argPreview ? (
           <span className="truncate font-mono text-[10.5px] text-fg-subtle">
             {argPreview}
           </span>
-        )}
+        ) : null}
         <span className="ml-auto flex flex-shrink-0 items-center gap-2 text-fg-muted">
           {summary && !running && (
             <span className="font-serif text-[11.5px] italic">
@@ -283,7 +317,7 @@ export function ToolCard({
       {open && !running && (
         <div className="mt-1 rounded-sm border border-border bg-bg-paper px-2.5 py-2">
           {parsed ? (
-            <StructuredResult name={name} result={parsed} />
+            <StructuredResult name={name} result={parsed} args={args} />
           ) : (
             <pre className="whitespace-pre-wrap font-mono text-[11px] text-fg-muted">
               {content}
