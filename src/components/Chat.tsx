@@ -443,6 +443,20 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     messagesRef.current = messages;
   }, [messages]);
 
+  // Toggle a data attribute on <html> when the chat surface is empty
+  // so the global Watermark can boost its opacity (lantern as the
+  // empty-state hero). CSS handles the actual fade — see
+  // .watermark-img rules in globals.css. Cleanup on unmount so the
+  // boost doesn't leak when navigating to non-chat pages.
+  useEffect(() => {
+    if (messages.length === 0) {
+      document.documentElement.dataset.chatEmpty = "true";
+      return () => {
+        delete document.documentElement.dataset.chatEmpty;
+      };
+    }
+  }, [messages.length]);
+
   // Debounced cross-session search. < 2 chars = no request, clear hits.
   // Scope + assistant change without waiting for debounce since those
   // imply the user already committed.
@@ -1416,7 +1430,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }
 
   return (
-    <div className="flex h-[100dvh] bg-bg text-fg">
+    <div className="flex h-[100dvh] text-fg">
       {/* Mobile backdrop that dismisses the drawer. `md:hidden` so the
           desktop side-by-side layout never sees it. */}
       {showSidebar && (
@@ -1793,9 +1807,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             )}
 
             {messages.length === 0 && (
-              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <div className="flex h-full flex-col items-center justify-start px-6 pt-[10vh] text-center">
                 <div
-                  className="mb-5 flex h-16 w-16 items-center justify-center rounded-full text-3xl"
+                  className="mb-4 flex h-14 w-14 items-center justify-center rounded-full text-2xl"
                   style={{
                     background: `${assistant.color}22`,
                     color: assistant.color,
@@ -1804,7 +1818,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   {assistant.emoji}
                 </div>
                 <h1
-                  className="font-display text-[28px] text-fg"
+                  className="font-display text-[26px] text-fg-muted"
                   style={{
                     fontVariationSettings: '"opsz" 144, "SOFT" 40',
                     fontStyle: "italic",
@@ -1812,9 +1826,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 >
                   {assistant.name}
                 </h1>
-                <p className="byline mt-1">{assistant.model}</p>
+                <p className="byline mt-1 opacity-80">{assistant.model}</p>
                 {assistant.systemPrompt && (
-                  <p className="mt-4 max-w-md font-serif text-[14px] italic leading-relaxed text-fg-muted">
+                  <p className="mt-4 max-w-md font-serif text-[14px] italic leading-relaxed text-fg-subtle">
                     {assistant.systemPrompt.split("\n")[0]}
                   </p>
                 )}

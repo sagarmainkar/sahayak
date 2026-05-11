@@ -53,14 +53,15 @@ export function AssistantEditor({
         : "/api/models";
     fetch(url)
       .then((r) => r.json())
-      .then((d: { models: ModelInfo[] }) => {
-        setModels(d.models);
+      .then((d: { models?: ModelInfo[] }) => {
+        const list = d.models ?? [];
+        setModels(list);
         // Don't blow away an existing selection; only autofill when
         // empty or the current pick isn't in the new catalogue.
         setForm((f) => {
-          const names = new Set((d.models ?? []).map((m) => m.name));
+          const names = new Set(list.map((m) => m.name));
           if (!f.model || !names.has(f.model)) {
-            return { ...f, model: d.models[0]?.name ?? "" };
+            return { ...f, model: list[0]?.name ?? "" };
           }
           return f;
         });

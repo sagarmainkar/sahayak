@@ -653,3 +653,31 @@ body::before {
     margin: 0;
   }
 }
+
+/* =====================================================
+   Sahayak lantern watermark
+   ===================================================== */
+/* Two opacity tiers: subtle baseline once a conversation is going,
+   prominent on the empty new-chat surface so the lantern doubles as
+   the empty-state hero. The transition makes the fade feel intentional
+   rather than abrupt — matches the user's framing of "fades as we
+   chat to give more importance to request responses". */
+.watermark-img {
+  transition: opacity 700ms ease-out;
+}
+
+.watermark-img-light {
+  opacity: 0.07;
+}
+.watermark-img-dark {
+  opacity: 0.14;
+}
+
+/* Empty-chat boost — set by Chat.tsx via a data attribute on <html>
+   when messages.length === 0. Keeps state out of React props. */
+html[data-chat-empty="true"] .watermark-img-light {
+  opacity: 0.18;
+}
+html[data-chat-empty="true"] .watermark-img-dark {
+  opacity: 0.32;
+}

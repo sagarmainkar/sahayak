@@ -10,6 +10,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { ArtifactPanelProvider } from "@/components/ArtifactPanelContext";
 import { ConfirmDialogProvider } from "@/components/ConfirmDialog";
+import { Watermark } from "@/components/Watermark";
 
 const geistSans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-ui-mono", subsets: ["latin"] });
@@ -55,6 +56,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} ${serif.variable} ${mono.variable} min-h-dvh antialiased`}
     >
       <body className="min-h-dvh flex flex-col bg-bg text-fg font-sans pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+        <Watermark />
         <ThemeProvider>
           <ConfirmDialogProvider>
             <ArtifactPanelProvider>{children}</ArtifactPanelProvider>

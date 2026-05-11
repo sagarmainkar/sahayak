@@ -143,9 +143,13 @@ export async function GET(req: Request) {
     });
     return NextResponse.json({ models: enriched });
   } catch (e) {
+    // Match the llama-cpp branch above: degrade to an empty list with a
+    // human-readable error so first-run UX (Ollama not started yet)
+    // doesn't crash the assistant editor. The UI surfaces the error
+    // string; clients reading `models` always get an array.
     return NextResponse.json(
-      { error: (e as Error).message },
-      { status: 500 },
+      { models: [], error: (e as Error).message },
+      { status: 200 },
     );
   }
 }
