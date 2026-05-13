@@ -1,0 +1,171 @@
+import { nanoid } from "nanoid";
+
+export type JobStatus = "running" | "paused" | "completed" | "failed" | "aborted";
+
+export type JobEvent = {
+  id: number;
+  data: Record<string, unknown>;
+};
+
+export type JobApprovalRequest = {
+  token: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+  resolve: (decision: "approve" | "deny" | "cancel") => void;
+};
+
+export type Job = {
+  id: string;
+  assistantId: string;
+  sessionId: string;
+  status: JobStatus;
+  createdAt: number;
+  updatedAt: number;
+  events: JobEvent[];
+  subscribers: Set<(event: JobEvent) => void>;
+  pendingApproval: JobApprovalRequest | null;
+  abort: (() => void) | null;
+  autoApproveTools: string[];
+};
+
+const jobs = new Map<string, Job>();
+
+const JOB_TTL_MS = 30 * 60 * 1000;
+
+function sweep() {
+  const cutoff = Date.now() - JOB_TTL_MS;
+  for (const [id, job] of jobs) {
+    if (
+      (job.status === "completed" || job.status === "failed" || job.status === "aborted") &&
+      job.updatedAt < cutoff
+    ) {
+      jobs.delete(id);
+    }
+  }
+}
+
+export function createJob(
+  assistantId: string,
+  sessionId: string,
+  autoApproveTools: string[] = []
+): Job {
+  sweep();
+  const job: Job = {
+    id: nanoid(12),
+    assistantId,
+    sessionId,
+    status: "running",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    events: [],
+    subscribers: new Set(),
+    pendingApproval: null,
+    abort: null,
+    autoApproveTools,
+  };
+  jobs.set(job.id, job);
+  return job;
+}
+
+export function getJob(id: string): Job | null {
+  sweep();
+  return jobs.get(id) ?? null;
+}
+
+export function listJobs(): Job[] {
+  sweep();
+  return Array.from(jobs.values());
+}
+
+export function listActiveJobs(): Job[] {
+  sweep();
+  return Array.from(jobs.values()).filter(
+    (j) => j.status === "running" || j.status === "paused"
+  );
+}
+
+export function appendEvent(jobId: string, data: Record<string, unknown>): void {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  const event: JobEvent = { id: job.events.length, data };
+  job.events.push(event);
+  job.updatedAt = Date.now();
+  for (const cb of job.subscribers) {
+    cb(event);
+  }
+}
+
+export function subscribe(
+  jobId: string,
+  fromEventId: number,
+  cb: (event: JobEvent) => void
+): (() => void) | null {
+  const job = jobs.get(jobId);
+  if (!job) return null;
+  for (const event of job.events) {
+    if (event.id >= fromEventId) {
+      cb(event);
+    }
+  }
+  job.subscribers.add(cb);
+  return () => {
+    job.subscribers.delete(cb);
+  };
+}
+
+export function setJobStatus(jobId: string, status: JobStatus): void {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.status = status;
+  job.updatedAt = Date.now();
+}
+
+export function setJobAbort(jobId: string, fn: () => void): void {
+  const job = jobs.get(jobId);
+  if (!job) return;
+  job.abort = fn;
+}
+
+export function abortJob(jobId: string): boolean {
+  const job = jobs.get(jobId);
+  if (!job) return false;
+  if (job.abort) {
+    job.abort();
+  }
+  job.status = "aborted";
+  job.updatedAt = Date.now();
+  appendEvent(jobId, { type: "end", reason: "aborted" });
+  return true;
+}
+
+export function pauseForApproval(
+  jobId: string,
+  token: string,
+  toolName: string,
+  args: Record<string, unknown>
+): Promise<"approve" | "deny" | "cancel"> {
+  return new Promise((resolve) => {
+    const job = jobs.get(jobId);
+    if (!job) {
+      resolve("cancel");
+      return;
+    }
+    job.pendingApproval = { token, toolName, arguments: args, resolve };
+    job.status = "paused";
+    job.updatedAt = Date.now();
+  });
+}
+
+export function resolveApproval(
+  jobId: string,
+  decision: "approve" | "deny" | "cancel"
+): boolean {
+  const job = jobs.get(jobId);
+  if (!job || !job.pendingApproval) return false;
+  const { resolve } = job.pendingApproval;
+  job.pendingApproval = null;
+  job.status = "running";
+  job.updatedAt = Date.now();
+  resolve(decision);
+  return true;
+}
