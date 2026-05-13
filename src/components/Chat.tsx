@@ -21,6 +21,8 @@ import { Composer } from "./Composer";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { useArtifactPanel } from "./ArtifactPanelContext";
+import { WebSearchBadges } from "./WebSearchBadges";
+import { UrlPreviewPanel } from "./UrlPreviewPanel";
 import { cn } from "@/lib/cn";
 import { fmtTokens } from "@/lib/fmt";
 import type {
@@ -59,6 +61,8 @@ const Turn = memo(function Turn({
   onContinue,
   sessionId,
   onArtifactAutoFix,
+  webSearchUrls,
+  onSelectUrl,
 }: {
   m: ChatMessage;
   streaming?: boolean;
@@ -70,6 +74,8 @@ const Turn = memo(function Turn({
   onContinue?: () => void;
   sessionId?: string | null;
   onArtifactAutoFix?: (error: string) => void;
+  webSearchUrls?: { url: string; title?: string }[];
+  onSelectUrl?: (url: string) => void;
 }) {
   if (m.role === "tool") {
     return (
@@ -215,6 +221,13 @@ const Turn = memo(function Turn({
           </div>
         ) : null}
 
+        {webSearchUrls && webSearchUrls.length > 0 && (
+          <WebSearchBadges
+            urls={webSearchUrls}
+            onSelect={onSelectUrl}
+          />
+        )}
+
         {onContinue && !streaming && (
           <ContinueButton
             stopReason={m.stopReason}
@@ -313,6 +326,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   // one-shot signal.
   const [pendingComposerAttachment, setPendingComposerAttachment] =
     useState<MsgAttachment | null>(null);
+  // URL preview panel state — set when user clicks a web-search result.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   // Cross-session search state. Query is what's in the input; hits is
   // the server response. When query is non-empty, the sidebar shows
@@ -1889,6 +1904,39 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 // fleuron rule only appears BETWEEN exchanges, not above
                 // the very first one.
                 let sawUser = false;
+                // Build a map: assistant message id → web-search URLs.
+                // URLs attach to the RESPONSE assistant (the one after the
+                // tool results), not the requesting assistant.
+                const webSearchMap = new Map<
+                  string,
+                  { url: string; title?: string }[]
+                >();
+                for (let idx = 0; idx < messages.length; idx++) {
+                  const m = messages[idx];
+                  if (m.role !== "assistant" || !m.content) continue;
+                  // Look backwards for preceding tool messages with web_search results
+                  const urls: { url: string; title?: string }[] = [];
+                  for (let j = idx - 1; j >= 0; j--) {
+                    const tm = messages[j];
+                    if (tm.role === "assistant" || tm.role === "user") break;
+                    if (tm.role !== "tool" || tm.toolName !== "web_search")
+                      continue;
+                    try {
+                      const parsed = JSON.parse(tm.content) as {
+                        ok?: boolean;
+                        results?: Array<{ url?: string; title?: string }>;
+                      };
+                      if (parsed.ok && Array.isArray(parsed.results)) {
+                        for (const r of parsed.results) {
+                          if (r.url) urls.push({ url: r.url, title: r.title });
+                        }
+                      }
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  if (urls.length) webSearchMap.set(m.id, urls);
+                }
                 return messages.map((m, i) => {
                   const opensNewExchange = m.role === "user" && sawUser;
                   if (m.role === "user") sawUser = true;
@@ -1921,6 +1969,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                           : undefined
                       }
                       onArtifactAutoFix={handleArtifactAutoFix}
+                      webSearchUrls={webSearchMap.get(m.id)}
+                      onSelectUrl={(url) => setPreviewUrl(url)}
                     />
                   </div>
                   );
@@ -2049,6 +2099,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             setPendingComposerAttachment(null)
           }
         />
+        <UrlPreviewPanel url={previewUrl} onClose={() => setPreviewUrl(null)} />
       </div>
     </div>
   );
