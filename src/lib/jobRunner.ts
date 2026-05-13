@@ -221,9 +221,9 @@ async function runJob(input: JobRunnerInput): Promise<void> {
       }
 
       if (event.type === "tool_execution_end") {
-        const result = event.result as { full?: string; ok?: boolean } | null;
+        const details = event.result?.details as { full?: string } | undefined;
         const summary =
-          result?.full ?? JSON.stringify(result ?? {});
+          details?.full ?? JSON.stringify(event.result ?? null);
         appendEvent(jobId, {
           type: "tool_result",
           id: event.toolCallId,
