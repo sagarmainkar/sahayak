@@ -51,9 +51,18 @@ function CodeBlock({
   async function copy() {
     try {
       await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {}
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = code;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   }
 
   return (
