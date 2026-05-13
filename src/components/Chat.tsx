@@ -434,11 +434,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
   // Reconnect to a running job on mount / navigation back. If the user
   // left mid-stream and returned, the server kept running — reload the
-  // session from disk (server has been persisting) and reconnect for
-  // live tail.
+  // session from disk (server has been persisting) and poll for live
+  // state until the job completes.
   useEffect(() => {
     if (!sessionId || streamingRef.current) return;
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
     fetch("/api/jobs")
       .then((r) => r.json())
       .then(({ jobs }) => {
@@ -452,23 +454,47 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         setActiveJobId(active.id);
         setStreaming(true);
         streamingRef.current = true;
-        // Reload session from disk (server has been writing), then
-        // connect for live updates only.
-        fetch(`/api/sessions/${sessionId}`)
-          .then((r) => r.json())
-          .then(({ session }) => {
+
+        // Poll: reload session from disk every 2s until the job finishes.
+        // This is simpler than wiring consumeJobStream (which is a closure
+        // inside handleSend) and gives a good-enough live-tail experience.
+        const poll = async () => {
+          if (cancelled) return;
+          try {
+            const [sessRes, jobRes] = await Promise.all([
+              fetch(`/api/sessions/${sessionId}`),
+              fetch(`/api/jobs/${active.id}`),
+            ]);
             if (cancelled) return;
-            setMessages(session.messages ?? []);
-            setCtx({
-              prompt: session.promptTokens ?? 0,
-              completion: session.completionTokens ?? 0,
-            });
-          })
-          .catch(() => {});
+            if (sessRes.ok) {
+              const { session } = await sessRes.json();
+              setMessages(session.messages ?? []);
+              setCtx({
+                prompt: session.promptTokens ?? 0,
+                completion: session.completionTokens ?? 0,
+              });
+            }
+            if (jobRes.ok) {
+              const { status } = await jobRes.json();
+              if (status === "completed" || status === "failed" || status === "aborted") {
+                setStreaming(false);
+                streamingRef.current = false;
+                setActiveJobId(null);
+                loadSessions();
+                return;
+              }
+            }
+          } catch {}
+          pollTimer = setTimeout(poll, 2000);
+        };
+        poll();
       })
       .catch(() => {});
-    return () => { cancelled = true; };
-  }, [sessionId]);
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, [sessionId, loadSessions]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -847,7 +873,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = "";
-        let needsApproval = false;
 
         while (true) {
           const { value, done } = await reader.read();
@@ -951,13 +976,48 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 startNewAssistant();
               }
             } else if (t === "tool_approval_required") {
-              needsApproval = true;
+              // Show approval UI and wait for user decision. The SSE
+              // stream stays open — once approved, the server resumes
+              // and new events flow through the same connection.
               setPendingApproval({
                 token: String(obj.token ?? ""),
                 toolName: String(obj.toolName ?? ""),
                 arguments: (obj.arguments as Record<string, unknown>) ?? {},
                 index: 0,
               });
+              const decision = await new Promise<{
+                decision: "approve" | "deny" | "cancel";
+                persist: "none" | "tool" | "all";
+              }>((resolve) => { approvalDeciderRef.current = resolve; });
+              approvalDeciderRef.current = null;
+              setPendingApproval(null);
+
+              if (decision.persist === "tool") {
+                cumulativeApproved = new Set([...cumulativeApproved, String(obj.toolName ?? "")]);
+                setSessionApprovedTools(cumulativeApproved);
+              } else if (decision.persist === "all") {
+                cumulativeApproved = new Set(allTools.map(t => t.name));
+                setSessionApprovedTools(cumulativeApproved);
+              }
+
+              if (decision.decision === "cancel") {
+                await fetch(`/api/jobs/${jobId}/approve`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ decision: "cancel" }),
+                });
+                return;
+              }
+
+              await fetch(`/api/jobs/${jobId}/approve`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  decision: decision.decision,
+                  autoApproveTools: [...cumulativeApproved],
+                }),
+              });
+              // Stream stays open — server resumes and events continue
             } else if (t === "error") {
               const cur = assembled[curIndex];
               patchCur({ content: cur.content + `\n\n**error:** ${String(obj.message ?? "")}` });
@@ -968,57 +1028,14 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           }
         }
 
-        // Stream ended. If it was for approval, wait for user decision then resume.
-        if (needsApproval) {
-          const decision = await new Promise<{
-            decision: "approve" | "deny" | "cancel";
-            persist: "none" | "tool" | "all";
-          }>((resolve) => { approvalDeciderRef.current = resolve; });
-          approvalDeciderRef.current = null;
-          setPendingApproval(null);
-
-          if (decision.decision === "cancel") {
-            await fetch(`/api/jobs/${jobId}/approve`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ decision: "cancel" }),
-            });
-            return;
-          }
-
-          // Update approval lists
-          if (decision.persist === "tool") {
-            cumulativeApproved = new Set([...cumulativeApproved, pendingApproval?.toolName ?? ""]);
-            setSessionApprovedTools(cumulativeApproved);
-          } else if (decision.persist === "all") {
-            cumulativeApproved = new Set(allTools.map(t => t.name));
-            setSessionApprovedTools(cumulativeApproved);
-          }
-
-          await fetch(`/api/jobs/${jobId}/approve`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              decision: decision.decision,
-              autoApproveTools: [...cumulativeApproved],
-            }),
-          });
-
-          // Reconnect to continue watching events
-          continue;
-        }
-
-        // Stream ended without approval pause — server closed it
-        // (completed/failed/aborted or disconnect). Try one reconnect
-        // if the job is still running.
+        // Stream closed (server closed connection or network drop).
+        // Check if the job is still active — if so, reconnect.
         const statusRes = await fetch(`/api/jobs/${jobId}`).catch(() => null);
         if (!statusRes || !statusRes.ok) return;
-        const status = (await statusRes.json()).status;
+        const { status } = (await statusRes.json()) as { status: string };
         if (status === "running" || status === "paused") {
-          // Reconnect
           continue;
         }
-        // Terminal state — we're done
         return;
       }
     }
