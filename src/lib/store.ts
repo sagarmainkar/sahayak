@@ -485,3 +485,47 @@ export async function deleteSession(id: string) {
     }
   }
 }
+
+export async function appendMessage(
+  assistantId: string,
+  sessionId: string,
+  message: ChatMessage,
+): Promise<void> {
+  const p = sessionFile(assistantId, sessionId);
+  if (!existsSync(p)) {
+    await fs.mkdir(sessionDir(assistantId, sessionId), { recursive: true });
+    const now = Date.now();
+    const meta: MetaRecord = {
+      type: "meta",
+      id: sessionId,
+      assistantId,
+      title: "New chat",
+      modelOverride: null,
+      promptTokens: 0,
+      completionTokens: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await fs.writeFile(p, JSON.stringify(meta) + "\n");
+  }
+  await fs.appendFile(
+    p,
+    JSON.stringify({ type: "message", data: message } satisfies MessageRecord) + "\n",
+  );
+}
+
+export async function updateSessionMeta(
+  assistantId: string,
+  sessionId: string,
+  patch: Partial<Omit<MetaRecord, "type" | "id" | "assistantId">>,
+): Promise<void> {
+  const p = sessionFile(assistantId, sessionId);
+  if (!existsSync(p)) return;
+  const raw = await fs.readFile(p, "utf8");
+  const nl = raw.indexOf("\n");
+  const firstLine = nl < 0 ? raw : raw.slice(0, nl);
+  const rest = nl < 0 ? "" : raw.slice(nl + 1);
+  const meta = JSON.parse(firstLine) as MetaRecord;
+  const updated: MetaRecord = { ...meta, ...patch, updatedAt: Date.now() };
+  await fs.writeFile(p, JSON.stringify(updated) + "\n" + rest);
+}
