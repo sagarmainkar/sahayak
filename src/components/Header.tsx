@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BarChart3, Brain, Settings as SettingsIcon, MoreVertical, Check } from "lucide-react";
+import { BarChart3, Brain, Cpu, Settings as SettingsIcon, MoreVertical, Check } from "lucide-react";
 import { useStyleTheme } from "./ThemeProvider";
 import { THEMES } from "@/lib/themes";
 import { cn } from "@/lib/cn";
@@ -25,6 +25,13 @@ export function Header({ children }: { children?: React.ReactNode }) {
 
       {/* Desktop chrome — hidden below sm */}
       <div className="hidden sm:flex items-center gap-2">
+        <Link
+          href="/models"
+          className="tt inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
+          data-tip="Models"
+        >
+          <Cpu className="h-3.5 w-3.5" />
+        </Link>
         <Link
           href="/memory"
           className="tt inline-flex h-10 w-10 items-center justify-center rounded text-fg-muted transition-colors hover:bg-bg-muted hover:text-fg"
@@ -111,6 +118,14 @@ function KebabMenu() {
             }}
             className="z-50 overflow-hidden rounded-lg border border-border bg-bg-elev p-1 shadow-[var(--shadow)]"
           >
+            <Link
+              href="/models"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded px-3 py-2 font-sans text-[13px] text-fg hover:bg-bg-muted"
+            >
+              <Cpu className="h-3.5 w-3.5 text-fg-muted" />
+              Models
+            </Link>
             <Link
               href="/memory"
               onClick={() => setOpen(false)}

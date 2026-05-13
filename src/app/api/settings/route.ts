@@ -36,6 +36,11 @@ export async function PATCH(req: Request) {
       ? body.ollama.apiKey
       : undefined;
 
+  const llamaPath: string | undefined =
+    typeof body?.llamaServer?.path === "string"
+      ? body.llamaServer.path
+      : undefined;
+
   const patch: SettingsPatch = {};
   if (backend !== undefined || voice !== undefined) {
     patch.tts = {};
@@ -47,6 +52,26 @@ export async function PATCH(req: Request) {
   }
   if (apiKey !== undefined) {
     patch.ollama = { apiKey };
+  }
+  if (llamaPath !== undefined || body?.llamaServer?.defaults !== undefined) {
+    patch.llamaServer = {};
+    if (llamaPath !== undefined) patch.llamaServer.path = llamaPath;
+    if (body?.llamaServer?.defaults !== undefined) {
+      patch.llamaServer.defaults = {};
+      const d = body.llamaServer.defaults;
+      if (typeof d.contextSize === "number")
+        patch.llamaServer.defaults.contextSize = d.contextSize;
+      if (["f16", "q8_0", "q4_0"].includes(d.kvType))
+        patch.llamaServer.defaults.kvType = d.kvType;
+      if (typeof d.port === "number") patch.llamaServer.defaults.port = d.port;
+      if (typeof d.ngl === "number") patch.llamaServer.defaults.ngl = d.ngl;
+      if (typeof d.flashAttn === "boolean")
+        patch.llamaServer.defaults.flashAttn = d.flashAttn;
+      if (typeof d.jinja === "boolean")
+        patch.llamaServer.defaults.jinja = d.jinja;
+      if (typeof d.noContextShift === "boolean")
+        patch.llamaServer.defaults.noContextShift = d.noContextShift;
+    }
   }
   const settings = await writeSettings(patch);
   return NextResponse.json({ settings });

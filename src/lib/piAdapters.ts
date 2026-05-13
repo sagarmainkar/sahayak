@@ -187,9 +187,10 @@ async function expandDocsIntoText(
   for (const a of attachments) {
     if (a.type !== "document") continue;
     const text = await readUploadText(scope, a.textFilename);
-    if (!text) continue;
+    if (text === null) continue;
     const label = a.originalName ?? a.filename;
-    chunks.push(`\n\nAttached: ${label}\n\`\`\`\n${text}\n\`\`\``);
+    const body = text.trim() || "(no extractable text)";
+    chunks.push(`\n\nAttached: ${label}\n\`\`\`\n${body}\n\`\`\``);
   }
   return chunks.length ? `${content}${chunks.join("")}` : content;
 }

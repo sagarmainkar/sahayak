@@ -1,9 +1,20 @@
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
 import { SETTINGS_FILE } from "@/lib/paths";
 
 export type TtsBackend = "soprano" | "polly";
+
+export type LlamaDefaults = {
+  contextSize: number;
+  kvType: "f16" | "q8_0" | "q4_0";
+  port: number;
+  ngl: number;
+  flashAttn: boolean;
+  jinja: boolean;
+  noContextShift: boolean;
+};
 
 export type Settings = {
   tts: {
@@ -19,11 +30,24 @@ export type Settings = {
      *  Empty string = disabled; the tools return a friendly error. */
     apiKey: string;
   };
+  llamaServer: {
+    /** Absolute path to the llama-server binary. Empty = auto-detect
+     *  at ~/.unsloth/llama.cpp/llama-server */
+    path: string;
+    defaults: LlamaDefaults;
+  };
 };
 
 const DEFAULT_TTL_DAYS = 15;
 const MIN_TTL_DAYS = 1;
 const MAX_TTL_DAYS = 365;
+
+const DEFAULT_LLAMA_PATH = path.join(
+  homedir(),
+  ".unsloth",
+  "llama.cpp",
+  "llama-server",
+);
 
 const DEFAULTS: Settings = {
   tts: {
@@ -35,6 +59,18 @@ const DEFAULTS: Settings = {
   },
   ollama: {
     apiKey: "",
+  },
+  llamaServer: {
+    path: DEFAULT_LLAMA_PATH,
+    defaults: {
+      contextSize: 32768,
+      kvType: "q8_0",
+      port: 8080,
+      ngl: 999,
+      flashAttn: true,
+      jinja: true,
+      noContextShift: true,
+    },
   },
 };
 
@@ -70,6 +106,43 @@ export async function readSettings(): Promise<Settings> {
             ? parsed.ollama.apiKey.trim()
             : DEFAULTS.ollama.apiKey,
       },
+      llamaServer: {
+        path:
+          typeof parsed.llamaServer?.path === "string"
+            ? parsed.llamaServer.path.trim()
+            : DEFAULTS.llamaServer.path,
+        defaults: {
+          contextSize:
+            typeof parsed.llamaServer?.defaults?.contextSize === "number"
+              ? parsed.llamaServer.defaults.contextSize
+              : DEFAULTS.llamaServer.defaults.contextSize,
+          kvType: ["f16", "q8_0", "q4_0"].includes(
+            parsed.llamaServer?.defaults?.kvType as string,
+          )
+            ? (parsed.llamaServer?.defaults?.kvType as "f16" | "q8_0" | "q4_0")
+            : DEFAULTS.llamaServer.defaults.kvType,
+          port:
+            typeof parsed.llamaServer?.defaults?.port === "number"
+              ? parsed.llamaServer.defaults.port
+              : DEFAULTS.llamaServer.defaults.port,
+          ngl:
+            typeof parsed.llamaServer?.defaults?.ngl === "number"
+              ? parsed.llamaServer.defaults.ngl
+              : DEFAULTS.llamaServer.defaults.ngl,
+          flashAttn:
+            typeof parsed.llamaServer?.defaults?.flashAttn === "boolean"
+              ? parsed.llamaServer.defaults.flashAttn
+              : DEFAULTS.llamaServer.defaults.flashAttn,
+          jinja:
+            typeof parsed.llamaServer?.defaults?.jinja === "boolean"
+              ? parsed.llamaServer.defaults.jinja
+              : DEFAULTS.llamaServer.defaults.jinja,
+          noContextShift:
+            typeof parsed.llamaServer?.defaults?.noContextShift === "boolean"
+              ? parsed.llamaServer.defaults.noContextShift
+              : DEFAULTS.llamaServer.defaults.noContextShift,
+        },
+      },
     };
   } catch {
     return DEFAULTS;
@@ -86,6 +159,10 @@ export type SettingsPatch = {
   };
   ollama?: {
     apiKey?: string;
+  };
+  llamaServer?: {
+    path?: string;
+    defaults?: Partial<LlamaDefaults>;
   };
 };
 
@@ -110,6 +187,23 @@ export async function writeSettings(patch: SettingsPatch): Promise<Settings> {
         typeof patch.ollama?.apiKey === "string"
           ? patch.ollama.apiKey.trim()
           : cur.ollama.apiKey,
+    },
+    llamaServer: {
+      path:
+        typeof patch.llamaServer?.path === "string"
+          ? patch.llamaServer.path.trim()
+          : cur.llamaServer.path,
+      defaults: {
+        contextSize:
+          patch.llamaServer?.defaults?.contextSize ?? cur.llamaServer.defaults.contextSize,
+        kvType: patch.llamaServer?.defaults?.kvType ?? cur.llamaServer.defaults.kvType,
+        port: patch.llamaServer?.defaults?.port ?? cur.llamaServer.defaults.port,
+        ngl: patch.llamaServer?.defaults?.ngl ?? cur.llamaServer.defaults.ngl,
+        flashAttn: patch.llamaServer?.defaults?.flashAttn ?? cur.llamaServer.defaults.flashAttn,
+        jinja: patch.llamaServer?.defaults?.jinja ?? cur.llamaServer.defaults.jinja,
+        noContextShift:
+          patch.llamaServer?.defaults?.noContextShift ?? cur.llamaServer.defaults.noContextShift,
+      },
     },
   };
   await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true });

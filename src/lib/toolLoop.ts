@@ -87,10 +87,11 @@ export async function toOllamaMessages(
           imgB64s.push(await attachmentToBase64(scope, a));
         } else if (a.type === "document") {
           const text = await readUploadText(scope, a.textFilename);
-          if (!text) continue;
+          if (text === null) continue;
           const label = a.originalName ?? a.filename;
+          const body = text.trim() || "(no extractable text)";
           docChunks.push(
-            `\n\nAttached: ${label}\n\`\`\`\n${text}\n\`\`\``,
+            `\n\nAttached: ${label}\n\`\`\`\n${body}\n\`\`\``,
           );
         }
       }

@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { fmtRelative } from "@/lib/fmt";
-import type { Settings } from "@/lib/settings";
+import type { Settings, SettingsPatch } from "@/lib/settings";
 import { useConfirm } from "./ConfirmDialog";
 
 type CleanupCandidate = {
@@ -117,7 +117,7 @@ export function SettingsPage() {
     loadMemoryHealth();
   }, []);
 
-  async function patchSettings(patch: Partial<Settings>) {
+  async function patchSettings(patch: SettingsPatch) {
     const r = await fetch("/api/settings", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -385,6 +385,11 @@ export function SettingsPage() {
         patchSettings={patchSettings}
       />
 
+      <LlamaServerSection
+        settings={settings}
+        patchSettings={patchSettings}
+      />
+
       <McpServersSection />
     </main>
   );
@@ -395,7 +400,7 @@ function OllamaKeySection({
   patchSettings,
 }: {
   settings: Settings | null;
-  patchSettings: (patch: Partial<Settings>) => Promise<void>;
+  patchSettings: (patch: SettingsPatch) => Promise<void>;
 }) {
   const [reveal, setReveal] = useState(false);
   // Local draft so typing doesn't wipe the saved value on re-render
@@ -892,6 +897,93 @@ function McpServersSection() {
               </div>
             );
           })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LlamaServerSection({
+  settings,
+  patchSettings,
+}: {
+  settings: Settings | null;
+  patchSettings: (patch: SettingsPatch) => Promise<void>;
+}) {
+  const saved = settings?.llamaServer?.path ?? "";
+  const [draft, setDraft] = useState(saved);
+  const [savedState, setSavedState] = useState<"idle" | "saving" | "done">("idle");
+
+  useEffect(() => {
+    if (draft === "") setDraft(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved]);
+
+  async function save() {
+    const v = draft.trim();
+    if (v === saved) return;
+    setSavedState("saving");
+    await patchSettings({ llamaServer: { path: v } });
+    setSavedState("done");
+    setTimeout(() => setSavedState("idle"), 1500);
+  }
+
+  const defaults = settings?.llamaServer?.defaults;
+
+  return (
+    <section className="mt-6 rounded-lg border border-border bg-bg-elev p-5">
+      <h2 className="byline mb-3">Local model server</h2>
+      <p className="mb-3 font-serif text-[12.5px] italic text-fg-muted">
+        Path to the{" "}
+        <span className="font-mono not-italic">llama-server</span>{" "}
+        binary used by the model loader. Leave empty to auto-detect at{" "}
+        <span className="font-mono not-italic">~/.unsloth/llama.cpp/llama-server</span>
+        .
+      </p>
+      <div className="flex items-center gap-2 text-[11.5px]">
+        <input
+          type="text"
+          spellCheck={false}
+          autoComplete="off"
+          placeholder={saved || "~/.unsloth/llama.cpp/llama-server"}
+          disabled={!settings}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              save();
+            }
+          }}
+          className="flex-1 rounded border border-border bg-bg-paper px-2 py-1 font-mono text-fg focus:border-accent focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={!settings || draft.trim() === saved || savedState === "saving"}
+          className="rounded border border-border bg-bg-paper px-3 py-1 font-sans text-fg hover:border-accent hover:text-accent disabled:opacity-40"
+        >
+          {savedState === "saving"
+            ? "Saving…"
+            : savedState === "done"
+              ? "Saved"
+              : "Save"}
+        </button>
+      </div>
+      {defaults && (
+        <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-[10.5px] text-fg-subtle sm:grid-cols-4">
+          <div className="rounded border border-border bg-bg-paper px-2 py-1">
+            default ctx: <span className="text-fg">{defaults.contextSize.toLocaleString()}</span>
+          </div>
+          <div className="rounded border border-border bg-bg-paper px-2 py-1">
+            KV: <span className="text-fg">{defaults.kvType}</span>
+          </div>
+          <div className="rounded border border-border bg-bg-paper px-2 py-1">
+            port: <span className="text-fg">{defaults.port}</span>
+          </div>
+          <div className="rounded border border-border bg-bg-paper px-2 py-1">
+            ngl: <span className="text-fg">{defaults.ngl}</span>
+          </div>
         </div>
       )}
     </section>
