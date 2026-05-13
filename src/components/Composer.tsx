@@ -606,7 +606,7 @@ export function Composer({
               (horizontal-scrollable if they overflow a narrow viewport),
               send on the right. Gives the typing area full width. */}
           <div className="hidden sm:flex items-center gap-1 border-t border-border/60 px-2 py-1.5">
-          <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="-mx-1 flex min-w-0 flex-1 flex-wrap items-center gap-1 px-1">
           <label
             className="tt tt-above flex flex-shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
             data-tip="Attach image: Add screenshots, photos, or diagrams for the model to see and analyze"
