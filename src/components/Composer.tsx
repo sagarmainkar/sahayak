@@ -609,7 +609,7 @@ export function Composer({
           <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <label
             className="tt tt-above flex flex-shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
-            data-tip="Attach image"
+            data-tip="Attach image: Add screenshots, photos, or diagrams for the model to see and analyze"
           >
             <Paperclip className="h-3.5 w-3.5" />
             <input
@@ -625,7 +625,7 @@ export function Composer({
           </label>
           <label
             className="tt tt-above flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
-            data-tip="Attach document (pdf, docx, xlsx, pptx, md, txt, csv)"
+            data-tip="Attach document: Upload PDF, Word, Excel, PowerPoint, or text files — content is extracted and sent as context"
           >
             <FilePlus className="h-3.5 w-3.5" />
             <input
@@ -650,8 +650,8 @@ export function Composer({
             )}
             data-tip={
               artifactsEnabled
-                ? "Artifact mode on — reply as a React artifact"
-                : "Artifact mode off"
+                ? "ON: Model will reply with interactive React components (charts, apps, visualizations) rendered in a live sandbox"
+                : "Artifact mode: Enable to get interactive React components instead of plain text — use for charts, dashboards, mini-apps"
             }
             aria-pressed={artifactsEnabled}
           >
@@ -669,8 +669,8 @@ export function Composer({
             )}
             data-tip={
               activeTemplate
-                ? "Template active — response will render structured"
-                : "Use a response template"
+                ? "ON: Next response will use the selected template format (tables, cards, timelines, etc.)"
+                : "Templates: Structure the next reply into a visual format — pick from tables, comparisons, timelines, and more"
             }
             aria-pressed={!!activeTemplate}
             aria-expanded={showTemplatePicker}
@@ -689,8 +689,8 @@ export function Composer({
               )}
               data-tip={
                 obsidianEnabled
-                  ? "Obsidian vault access enabled"
-                  : "Enable Obsidian vault access"
+                  ? "ON: Model can search and read your Obsidian vault notes via CLI — disable to keep vault private this session"
+                  : "Obsidian: Enable to let the model search, read, and reference your Obsidian vault notes during this conversation"
               }
               aria-pressed={obsidianEnabled}
             >

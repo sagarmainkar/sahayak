@@ -536,10 +536,10 @@ body::before {
   font-family: var(--stack-sans);
   font-size: 10.5px;
   letter-spacing: 0.02em;
-  white-space: nowrap;
-  max-width: min(320px, 90vw);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  max-width: min(280px, 90vw);
+  width: max-content;
+  line-height: 1.4;
   opacity: 0;
   pointer-events: none;
   transition: opacity 120ms, transform 120ms;
