@@ -11,6 +11,7 @@ import {
   setJobStatus,
   setJobAbort,
   pauseForApproval,
+  pauseForUserInput,
   getJob,
 } from "@/lib/jobRegistry";
 import { appendMessage, updateSessionMeta } from "@/lib/store";
@@ -93,6 +94,27 @@ async function runJob(input: JobRunnerInput): Promise<void> {
       ctx: BeforeToolCallContext,
     ): Promise<BeforeToolCallResult | undefined> => {
       const toolName = ctx.toolCall.name;
+
+      if (toolName === "ask_user") {
+        const args = ctx.toolCall.arguments as Record<string, unknown>;
+        const question = String(args.question ?? "");
+        const optionsRaw = String(args.options ?? "");
+        const options = optionsRaw
+          ? optionsRaw.split(",").map((o) => o.trim()).filter(Boolean)
+          : [];
+        const token = nanoid(16);
+
+        appendEvent(jobId, {
+          type: "user_input_required",
+          token,
+          question,
+          options,
+        });
+
+        const answer = await pauseForUserInput(jobId, token, question, options);
+        return { block: true, reason: `User responded: ${answer}` };
+      }
+
       const liveJob = getJob(jobId);
       const liveAutoApprove = liveJob?.autoApproveTools ?? input.autoApproveTools;
 

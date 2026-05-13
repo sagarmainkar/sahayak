@@ -14,6 +14,13 @@ export type JobApprovalRequest = {
   resolve: (decision: "approve" | "deny" | "cancel") => void;
 };
 
+export type JobUserInputRequest = {
+  token: string;
+  question: string;
+  options: string[];
+  resolve: (answer: string) => void;
+};
+
 export type Job = {
   id: string;
   assistantId: string;
@@ -24,6 +31,7 @@ export type Job = {
   events: JobEvent[];
   subscribers: Set<(event: JobEvent) => void>;
   pendingApproval: JobApprovalRequest | null;
+  pendingUserInput: JobUserInputRequest | null;
   abort: (() => void) | null;
   autoApproveTools: string[];
 };
@@ -60,6 +68,7 @@ export function createJob(
     events: [],
     subscribers: new Set(),
     pendingApproval: null,
+    pendingUserInput: null,
     abort: null,
     autoApproveTools,
   };
@@ -167,5 +176,34 @@ export function resolveApproval(
   job.status = "running";
   job.updatedAt = Date.now();
   resolve(decision);
+  return true;
+}
+
+export function pauseForUserInput(
+  jobId: string,
+  token: string,
+  question: string,
+  options: string[],
+): Promise<string> {
+  return new Promise((resolve) => {
+    const job = jobs.get(jobId);
+    if (!job) {
+      resolve("");
+      return;
+    }
+    job.pendingUserInput = { token, question, options, resolve };
+    job.status = "paused";
+    job.updatedAt = Date.now();
+  });
+}
+
+export function resolveUserInput(jobId: string, answer: string): boolean {
+  const job = jobs.get(jobId);
+  if (!job || !job.pendingUserInput) return false;
+  const { resolve } = job.pendingUserInput;
+  job.pendingUserInput = null;
+  job.status = "running";
+  job.updatedAt = Date.now();
+  resolve(answer);
   return true;
 }

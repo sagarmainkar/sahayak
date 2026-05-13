@@ -20,6 +20,7 @@ import { ToolCard } from "./ToolCard";
 import { Composer } from "./Composer";
 import { ArtifactPanel } from "./ArtifactPanel";
 import { ToolApprovalCard } from "./ToolApprovalCard";
+import { UserInputCard } from "./UserInputCard";
 import { useArtifactPanel } from "./ArtifactPanelContext";
 import { cn } from "@/lib/cn";
 import { fmtTokens } from "@/lib/fmt";
@@ -294,6 +295,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const localSessionRef = useRef<string | null>(null);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const lastEventIdRef = useRef<number>(-1);
+  const [obsidianEnabled, setObsidianEnabled] = useState(false);
   // Mirrors the Composer's artifact toggle so regen reuses the same mode.
   const lastArtifactsEnabledRef = useRef(false);
   // Tool-approval state — gates risky tool calls per the server's
@@ -343,6 +345,20 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     approvalDeciderRef.current = null;
     setPendingApproval(null);
     d?.({ decision, persist });
+  }
+
+  const [pendingUserInput, setPendingUserInput] = useState<{
+    token: string;
+    question: string;
+    options: string[];
+  } | null>(null);
+  const userInputDeciderRef = useRef<((answer: string) => void) | null>(null);
+
+  function respondToUserInput(answer: string) {
+    const d = userInputDeciderRef.current;
+    userInputDeciderRef.current = null;
+    setPendingUserInput(null);
+    d?.(answer);
   }
   const { openId: artifactOpenId } = useArtifactPanel();
 
@@ -801,9 +817,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     // session (models follow precedent). Storing the instruction only
     // on the wire keeps the persisted transcript clean.
     const tmpl = templateId ? TEMPLATES_BY_ID[templateId] : null;
+    let systemBase = assistant.systemPrompt;
+    if (obsidianEnabled) {
+      systemBase += "\n\n---\n\nYou have access to the user's Obsidian vault via the `obsidian` CLI. Start with `obsidian --help` to discover usage.";
+    }
     const systemWithTemplate = tmpl
-      ? `${assistant.systemPrompt}\n\n---\n\n${tmpl.systemPrompt}`
-      : assistant.systemPrompt;
+      ? `${systemBase}\n\n---\n\n${tmpl.systemPrompt}`
+      : systemBase;
 
     const wireMessages = nextMessages.map((m, i) => {
       const base = {
@@ -1018,6 +1038,23 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 }),
               });
               // Stream stays open — server resumes and events continue
+            } else if (t === "user_input_required") {
+              setPendingUserInput({
+                token: String(obj.token ?? ""),
+                question: String(obj.question ?? ""),
+                options: Array.isArray(obj.options) ? (obj.options as string[]) : [],
+              });
+              const answer = await new Promise<string>((resolve) => {
+                userInputDeciderRef.current = resolve;
+              });
+              userInputDeciderRef.current = null;
+              setPendingUserInput(null);
+
+              await fetch(`/api/jobs/${jobId}/respond`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ answer }),
+              });
             } else if (t === "error") {
               const cur = assembled[curIndex];
               patchCur({ content: cur.content + `\n\n**error:** ${String(obj.message ?? "")}` });
@@ -1938,6 +1975,13 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   onDeny={() => decideApproval("deny", "none")}
                 />
               )}
+              {pendingUserInput && (
+                <UserInputCard
+                  question={pendingUserInput.question}
+                  options={pendingUserInput.options}
+                  onRespond={respondToUserInput}
+                />
+              )}
             </div>
           </div>
 
@@ -2048,6 +2092,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           onPendingAttachmentConsumed={() =>
             setPendingComposerAttachment(null)
           }
+          obsidianEnabled={obsidianEnabled}
+          onObsidianToggle={() => setObsidianEnabled((v) => !v)}
         />
       </div>
     </div>

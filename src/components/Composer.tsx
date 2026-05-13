@@ -115,6 +115,8 @@ type Props = {
    *  the slot. Composer never holds a reference to the parent's state. */
   pendingAttachment?: MsgAttachment | null;
   onPendingAttachmentConsumed?: () => void;
+  obsidianEnabled?: boolean;
+  onObsidianToggle?: () => void;
 };
 
 type UploadResponse = {
@@ -215,6 +217,8 @@ export function Composer({
   onAbort,
   pendingAttachment,
   onPendingAttachmentConsumed,
+  obsidianEnabled,
+  onObsidianToggle,
 }: Props) {
   // Resolve the current session id only when actually uploading; a
   // fresh chat lazily creates its session on first interaction. Once
@@ -673,6 +677,28 @@ export function Composer({
           >
             <LayoutTemplate className="h-3.5 w-3.5" />
           </button>
+          {onObsidianToggle && (
+            <button
+              type="button"
+              onClick={onObsidianToggle}
+              className={cn(
+                "tt tt-above flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
+                obsidianEnabled
+                  ? "text-accent"
+                  : "text-fg-subtle hover:text-fg",
+              )}
+              data-tip={
+                obsidianEnabled
+                  ? "Obsidian vault access enabled"
+                  : "Enable Obsidian vault access"
+              }
+              aria-pressed={obsidianEnabled}
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12.6 2.4c-.4-.3-1-.3-1.4 0L7.5 5.6c-.3.3-.5.7-.5 1.1v10.6c0 .4.2.8.5 1.1l3.7 3.2c.4.3 1 .3 1.4 0l3.7-3.2c.3-.3.5-.7.5-1.1V6.7c0-.4-.2-.8-.5-1.1L12.6 2.4zm-.7 2.3l2.8 2.4v9.8l-2.8 2.4-2.8-2.4V7.1l2.8-2.4z"/>
+              </svg>
+            </button>
+          )}
           {showTemplatePicker &&
             templateCoords &&
             typeof document !== "undefined" &&

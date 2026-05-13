@@ -12,6 +12,7 @@ import { webSearch, webFetch } from "./web";
 import { artifactCreate, artifactWriteFile } from "./artifact";
 import { remember, recallMemory, listAllMemories } from "./memory";
 import { gmailSearch, gmailRead } from "./gmail";
+import { askUser } from "./askUser";
 import { callMcpTool, getAllMcpTools } from "@/lib/mcp/registry";
 
 /**
@@ -44,7 +45,7 @@ export const ALL_TOOLS: ToolSpec[] = [
  * tool-call + tool-result still stream to the UI so the user can see
  * what got saved/recalled.
  */
-const IMPLICIT_TOOLS: ToolSpec[] = [remember, recallMemory, listAllMemories];
+const IMPLICIT_TOOLS: ToolSpec[] = [remember, recallMemory, listAllMemories, askUser];
 
 /** Set for O(1) "is this an implicit tool?" checks in HITL gates. */
 export const IMPLICIT_TOOL_NAMES = new Set(IMPLICIT_TOOLS.map((t) => t.name));
