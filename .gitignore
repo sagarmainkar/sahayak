@@ -82,3 +82,6 @@ next-env.d.ts
 **/.venv/
 
 .superpowers/
+__pycache__
+
+.pi/
