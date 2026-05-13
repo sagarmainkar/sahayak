@@ -179,12 +179,26 @@ def _pdf(path: Path, password: str | None, ocr: bool = False,
     # Vision OCR for image-heavy pages
     if ocr and image_pages and vision_model:
         ocr_results = _ocr_pages(path, image_pages, ollama_url, vision_model)
-        for page_idx, ocr_text in ocr_results:
-            # Replace the sparse text with OCR result
-            for j, (pi, _) in enumerate(pages):
-                if pi == page_idx:
-                    pages[j] = (pi, ocr_text)
-                    break
+        if ocr_results:
+            for page_idx, ocr_text in ocr_results:
+                for j, (pi, _) in enumerate(pages):
+                    if pi == page_idx:
+                        pages[j] = (pi, ocr_text)
+                        break
+        else:
+            # OCR was attempted but yielded nothing — model may not support vision
+            note = (
+                f"[This PDF contains {len(image_pages)} scanned/image-based page(s). "
+                f"Vision OCR was attempted with model '{vision_model}' but could not "
+                f"extract text. The model may not support image inputs.]"
+            )
+            pages.append((len(reader.pages), note))
+    elif image_pages and not ocr:
+        note = (
+            f"[This PDF contains {len(image_pages)} scanned/image-based page(s) "
+            f"with no extractable text. Vision OCR was not enabled.]"
+        )
+        pages.append((len(reader.pages), note))
 
     return "\n\n".join(text for _, text in pages if text.strip())
 

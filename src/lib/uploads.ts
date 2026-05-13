@@ -186,15 +186,15 @@ export class PdfEncryptedError extends Error {
 function extractWithPython(
   srcPath: string,
   password?: string,
+  visionModel?: string,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [EXTRACT_SCRIPT, srcPath];
     if (password) args.push("--password", password);
-    // Enable vision OCR for image-based PDFs
     const ollamaUrl = process.env.OLLAMA_URL ?? "http://localhost:11434";
-    const visionModel = process.env.VISION_MODEL ?? "";
-    if (visionModel) {
-      args.push("--ocr", "--ollama-url", ollamaUrl, "--vision-model", visionModel);
+    const model = visionModel || process.env.VISION_MODEL || "";
+    if (model) {
+      args.push("--ocr", "--ollama-url", ollamaUrl, "--vision-model", model);
     }
     const child = spawn(VENV_PY, args);
     const out: Buffer[] = [];
@@ -227,6 +227,7 @@ async function extractDocumentText(
   srcPath: string,
   ext: string,
   password?: string,
+  visionModel?: string,
 ): Promise<string> {
   let raw: string;
   if (ext === "md" || ext === "txt" || ext === "csv") {
@@ -237,14 +238,8 @@ async function extractDocumentText(
     ext === "xlsx" ||
     ext === "pptx"
   ) {
-    // Prefer Python when the venv exists — richer parsers + encrypted
-    // PDF support. Without it, officeparser handles everything except
-    // encrypted PDFs (those will fail at the parseOffice call with a
-    // generic error; we translate to PdfEncryptedError so the UI can
-    // still ask for a password and a subsequent request-with-python
-    // succeeds if the user sets up the venv).
     if (hasPythonExtractor()) {
-      raw = await extractWithPython(srcPath, password);
+      raw = await extractWithPython(srcPath, password, visionModel);
     } else {
       if (ext === "pdf" && (await isPdfEncrypted(srcPath))) {
         throw new PdfEncryptedError(
@@ -300,6 +295,7 @@ export async function saveUpload(
   mimeType: string,
   originalName?: string,
   password?: string,
+  visionModel?: string,
 ): Promise<SavedUpload> {
   validateScope(scope);
   const meta = extOf(mimeType, originalName);
@@ -330,7 +326,7 @@ export async function saveUpload(
       sidecarName,
     );
     if (!existsSync(sidecarPath)) {
-      const text = await extractDocumentText(full, ext, password);
+      const text = await extractDocumentText(full, ext, password, visionModel);
       await fs.writeFile(sidecarPath, text, "utf8");
     }
     textFilename = sidecarName;

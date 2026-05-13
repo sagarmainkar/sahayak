@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { saveUpload, PdfEncryptedError } from "@/lib/uploads";
 import { isValidIdSegment } from "@/lib/paths";
+import { getAssistant } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -42,12 +43,14 @@ export async function POST(req: Request) {
   }
   try {
     const buf = Buffer.from(await file.arrayBuffer());
+    const assistant = await getAssistant(assistantId);
     const up = await saveUpload(
       { assistantId, sessionId },
       buf,
       file.type || "",
       file.name,
       typeof password === "string" && password.length ? password : undefined,
+      assistant?.model,
     );
     return NextResponse.json({ attachment: up });
   } catch (e) {
