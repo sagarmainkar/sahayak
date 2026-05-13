@@ -190,6 +190,12 @@ function extractWithPython(
   return new Promise((resolve, reject) => {
     const args = [EXTRACT_SCRIPT, srcPath];
     if (password) args.push("--password", password);
+    // Enable vision OCR for image-based PDFs
+    const ollamaUrl = process.env.OLLAMA_URL ?? "http://localhost:11434";
+    const visionModel = process.env.VISION_MODEL ?? "";
+    if (visionModel) {
+      args.push("--ocr", "--ollama-url", ollamaUrl, "--vision-model", visionModel);
+    }
     const child = spawn(VENV_PY, args);
     const out: Buffer[] = [];
     const err: Buffer[] = [];

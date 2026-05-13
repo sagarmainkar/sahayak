@@ -21,6 +21,7 @@ formats (.md .txt .csv) — though those are better handled in Node.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -79,10 +80,70 @@ def _pptx(path: Path) -> str:
     return "\n".join(parts).rstrip()
 
 
-def _pdf(path: Path, password: str | None) -> str:
+def _ocr_pages(pdf_path: Path, page_indices: list[int],
+               ollama_url: str, model: str) -> list[tuple[int, str]]:
+    """Render specified pages as images and OCR via Ollama vision model."""
+    import base64
+    import io
+    import requests
+
+    try:
+        from pdf2image import convert_from_path
+    except ImportError:
+        print("pdf2image not installed, skipping OCR", file=sys.stderr)
+        return []
+
+    results: list[tuple[int, str]] = []
+    # Convert only the pages we need — pdf2image is 1-indexed
+    for page_idx in page_indices:
+        try:
+            images = convert_from_path(
+                str(pdf_path),
+                first_page=page_idx + 1,
+                last_page=page_idx + 1,
+                dpi=200,
+            )
+            if not images:
+                continue
+            img = images[0]
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode()
+
+            resp = requests.post(
+                f"{ollama_url}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [{
+                        "role": "user",
+                        "content": "Extract all text from this image. Preserve structure (headings, lists, tables). Return only the extracted text, no commentary.",
+                        "images": [b64],
+                    }],
+                    "stream": False,
+                },
+                timeout=120,
+            )
+            if resp.ok:
+                data = resp.json()
+                ocr_text = data.get("message", {}).get("content", "")
+                if ocr_text.strip():
+                    results.append((page_idx, ocr_text))
+        except Exception as e:
+            print(f"OCR failed for page {page_idx + 1}: {e}", file=sys.stderr)
+            continue
+
+    return results
+
+
+def _pdf(path: Path, password: str | None, ocr: bool = False,
+         ollama_url: str = "http://localhost:11434", vision_model: str = "") -> str:
     """Extract PDF text with pypdf. Handles encryption: if the PDF is
     encrypted and no password was supplied, exit 65 so the Node side can
-    prompt; if the supplied password is wrong, exit 66."""
+    prompt; if the supplied password is wrong, exit 66.
+
+    When ocr=True and vision_model is set, pages with very little extracted
+    text (< 50 chars) are rendered as images and sent to the Ollama vision
+    model for OCR."""
     from pypdf import PdfReader
     from pypdf.errors import DependencyError, FileNotDecryptedError
 
@@ -101,16 +162,31 @@ def _pdf(path: Path, password: str | None) -> str:
             print("PDF_BAD_PASSWORD", file=sys.stderr)
             sys.exit(66)
 
-    parts: list[str] = []
+    pages: list[tuple[int, str]] = []
+    image_pages: list[int] = []
     try:
-        for page in reader.pages:
+        for i, page in enumerate(reader.pages):
             text = page.extract_text() or ""
-            if text.strip():
-                parts.append(text)
+            if len(text.strip()) >= 50:
+                pages.append((i, text))
+            else:
+                pages.append((i, text))  # keep whatever little text there is
+                image_pages.append(i)
     except FileNotDecryptedError:
         print("PDF_BAD_PASSWORD", file=sys.stderr)
         sys.exit(66)
-    return "\n\n".join(parts)
+
+    # Vision OCR for image-heavy pages
+    if ocr and image_pages and vision_model:
+        ocr_results = _ocr_pages(path, image_pages, ollama_url, vision_model)
+        for page_idx, ocr_text in ocr_results:
+            # Replace the sparse text with OCR result
+            for j, (pi, _) in enumerate(pages):
+                if pi == page_idx:
+                    pages[j] = (pi, ocr_text)
+                    break
+
+    return "\n\n".join(text for _, text in pages if text.strip())
 
 
 def _textish(path: Path) -> str:
@@ -135,6 +211,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("path", type=Path)
     ap.add_argument("--password", default=None)
+    ap.add_argument("--ocr", action="store_true", help="Enable vision OCR for image-heavy pages")
+    ap.add_argument("--ollama-url", default=os.environ.get("OLLAMA_URL", "http://localhost:11434"))
+    ap.add_argument("--vision-model", default=os.environ.get("VISION_MODEL", ""))
     args = ap.parse_args()
 
     if not args.path.exists():
@@ -144,7 +223,8 @@ def main() -> int:
 
     try:
         if ext == ".pdf":
-            text = _pdf(args.path, args.password)
+            text = _pdf(args.path, args.password, ocr=args.ocr,
+                        ollama_url=args.ollama_url, vision_model=args.vision_model)
         elif ext in _HANDLERS:
             text = _HANDLERS[ext](args.path)
         else:
