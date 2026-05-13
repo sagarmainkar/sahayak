@@ -292,6 +292,8 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   const scrollRef = useRef<HTMLDivElement>(null);
   const streamingRef = useRef(false);
   const localSessionRef = useRef<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const lastEventIdRef = useRef<number>(-1);
   // Mirrors the Composer's artifact toggle so regen reuses the same mode.
   const lastArtifactsEnabledRef = useRef(false);
   // Tool-approval state — gates risky tool calls per the server's
@@ -429,6 +431,44 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       })
       .catch((e) => console.error("[chat] load session failed:", e));
   }, [sessionId, assistantId]);
+
+  // Reconnect to a running job on mount / navigation back. If the user
+  // left mid-stream and returned, the server kept running — reload the
+  // session from disk (server has been persisting) and reconnect for
+  // live tail.
+  useEffect(() => {
+    if (!sessionId || streamingRef.current) return;
+    let cancelled = false;
+    fetch("/api/jobs")
+      .then((r) => r.json())
+      .then(({ jobs }) => {
+        if (cancelled) return;
+        const active = jobs.find(
+          (j: { sessionId: string; status: string }) =>
+            j.sessionId === sessionId &&
+            (j.status === "running" || j.status === "paused"),
+        );
+        if (!active) return;
+        setActiveJobId(active.id);
+        setStreaming(true);
+        streamingRef.current = true;
+        // Reload session from disk (server has been writing), then
+        // connect for live updates only.
+        fetch(`/api/sessions/${sessionId}`)
+          .then((r) => r.json())
+          .then(({ session }) => {
+            if (cancelled) return;
+            setMessages(session.messages ?? []);
+            setCtx({
+              prompt: session.promptTokens ?? 0,
+              completion: session.completionTokens ?? 0,
+            });
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -784,255 +824,227 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
     let lastTokens = { prompt: 0, completion: 0 };
 
-    // Consumes one SSE stream. Returns a pause event if the loop paused
-    // awaiting approval, or null when the stream ends normally.
-    async function consumeStream(
-      res: Response,
-    ): Promise<{
-      token: string;
-      toolName: string;
-      arguments: Record<string, unknown>;
-      index: number;
-    } | null> {
-      if (!res.body) throw new Error("no body");
-      const reader = res.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      let pause: {
-        token: string;
-        toolName: string;
-        arguments: Record<string, unknown>;
-        index: number;
-      } | null = null;
+    // Accumulates approvals ACROSS iterations of the approval loop.
+    // Defined here (not inside the try) so consumeJobStream's closure
+    // can mutate it across reconnections.
+    let cumulativeApproved = new Set(sessionApprovedTools);
 
+    // Consumes the job's SSE stream. Handles reconnection on
+    // disconnect and approval pauses. Returns when the job reaches a
+    // terminal state or is cancelled.
+    async function consumeJobStream(jobId: string, ac: AbortController): Promise<void> {
       while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const events = buf.split("\n\n");
-        buf = events.pop() ?? "";
-        for (const ev of events) {
-          const line = ev.replace(/^data:\s?/, "");
-          if (!line.trim() || line === "[DONE]") continue;
-          let obj: Record<string, unknown>;
-          try {
-            obj = JSON.parse(line);
-          } catch {
-            continue;
-          }
-          const t = obj.type as string;
-          if (t === "content") {
-            ensureNonToolPhase("writing");
-            const cur = assembled[curIndex];
-            patchCur({ content: cur.content + String(obj.delta ?? "") });
-          } else if (t === "thinking") {
-            ensureNonToolPhase("thinking");
-            const cur = assembled[curIndex];
-            patchCur({
-              thinking: (cur.thinking ?? "") + String(obj.delta ?? ""),
-            });
-          } else if (t === "done_turn") {
-            const incoming = {
-              prompt: Number(obj.promptTokens ?? 0),
-              completion: Number(obj.completionTokens ?? 0),
-            };
-            // Monotonic guard within a streaming turn. Pi-agent-core
-            // emits message_end per LLM round in a multi-tool turn;
-            // each round's prompt should be ≥ the previous one
-            // (conversation only grows). If we see a smaller value,
-            // it's almost certainly a usage-reporting glitch from
-            // the backend (e.g. KV-cache eviction, truncation, or a
-            // round that skipped the usage field). Keep the high
-            // water mark so the pie doesn't lie.
-            if (incoming.prompt >= lastTokens.prompt) {
-              lastTokens = incoming;
-            } else {
-              console.warn(
-                "[ctx-guard] non-monotonic done_turn ignored: prompt %d → %d (kept %d)",
-                lastTokens.prompt,
-                incoming.prompt,
-                lastTokens.prompt,
-              );
-              // Still update completion — that's per-round, not
-              // cumulative, so a drop there is normal.
-              lastTokens = {
-                prompt: lastTokens.prompt,
-                completion: incoming.completion,
+        const headers: Record<string, string> = {};
+        if (lastEventIdRef.current >= 0) {
+          headers["Last-Event-ID"] = String(lastEventIdRef.current);
+        }
+        const res = await fetch(`/api/jobs/${jobId}/stream`, {
+          headers,
+          signal: ac.signal,
+        });
+        if (!res.ok || !res.body) throw new Error(`stream ${res.status}`);
+
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        let needsApproval = false;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const events = buf.split("\n\n");
+          buf = events.pop() ?? "";
+          for (const ev of events) {
+            // Parse SSE: "id: N\ndata: {...}"
+            let eventId: number | null = null;
+            let dataLine = "";
+            for (const line of ev.split("\n")) {
+              if (line.startsWith("id: ")) eventId = parseInt(line.slice(4), 10);
+              else if (line.startsWith("data: ")) dataLine = line.slice(6);
+            }
+            if (eventId !== null) lastEventIdRef.current = eventId;
+            if (!dataLine) continue;
+
+            let obj: Record<string, unknown>;
+            try { obj = JSON.parse(dataLine); } catch { continue; }
+            const t = obj.type as string;
+
+            if (t === "content") {
+              ensureNonToolPhase("writing");
+              const cur = assembled[curIndex];
+              patchCur({ content: cur.content + String(obj.delta ?? "") });
+            } else if (t === "thinking") {
+              ensureNonToolPhase("thinking");
+              const cur = assembled[curIndex];
+              patchCur({ thinking: (cur.thinking ?? "") + String(obj.delta ?? "") });
+            } else if (t === "done_turn") {
+              const incoming = {
+                prompt: Number(obj.promptTokens ?? 0),
+                completion: Number(obj.completionTokens ?? 0),
               };
-            }
-            setCtx(lastTokens);
-            // Stash this turn's output tokens on the assistant message
-            // so the Turn timeline can render tokens/sec after the
-            // stream ends.
-            patchCur({ completionTokens: lastTokens.completion });
-          } else if (t === "assistant_message") {
-            const cur = assembled[curIndex];
-            patchCur({
-              content:
-                obj.content !== undefined
-                  ? String(obj.content)
-                  : cur.content,
-              thinking:
-                obj.thinking !== undefined
-                  ? String(obj.thinking)
-                  : cur.thinking,
-              toolCalls: obj.toolCalls as ChatMessage["toolCalls"],
-              ...(typeof obj.stopReason === "string"
-                ? { stopReason: obj.stopReason as ChatMessage["stopReason"] }
-                : {}),
-            });
-          } else if (t === "tool_call") {
-            // Use the server's toolCallId as the React id so tool_result
-            // can find THIS card — parallel execution fires multiple
-            // tool_call events back-to-back, and a position-based match
-            // overwrites the same card while the others spin forever.
-            const callId = String(obj.id ?? uid());
-            const toolName = String(obj.name ?? "");
-            openToolPhase(toolName, callId);
-            assembled.push({
-              id: callId,
-              role: "tool",
-              content: "(running…)",
-              toolName,
-              toolArgs:
-                obj.arguments &&
-                typeof obj.arguments === "object"
-                  ? (obj.arguments as Record<string, unknown>)
-                  : undefined,
-              createdAt: Date.now(),
-            });
-            scheduleFlush();
-          } else if (t === "tool_result") {
-            const callId = obj.id ? String(obj.id) : null;
-            const ok = Boolean(obj.ok);
-            if (callId) closeToolPhase(callId, ok);
-            for (let i = assembled.length - 1; i >= 0; i--) {
-              const m = assembled[i];
-              const match = callId
-                ? m.role === "tool" && m.id === callId
-                : m.role === "tool";
-              if (match) {
-                assembled[i] = {
-                  ...assembled[i],
-                  content: String(obj.summary ?? ""),
+              if (incoming.prompt >= lastTokens.prompt) {
+                lastTokens = incoming;
+              } else {
+                console.warn(
+                  "[ctx-guard] non-monotonic done_turn ignored: prompt %d → %d (kept %d)",
+                  lastTokens.prompt,
+                  incoming.prompt,
+                  lastTokens.prompt,
+                );
+                lastTokens = {
+                  prompt: lastTokens.prompt,
+                  completion: incoming.completion,
                 };
-                break;
               }
-            }
-            scheduleFlush();
-            // A tool_result marks a transition point; the next LLM turn
-            // may produce content. But with parallel execution we see
-            // several tool_results in a row — only the first one needs
-            // to open a fresh assistant placeholder. Reuse an existing
-            // trailing empty one on subsequent results.
-            const tail = assembled[assembled.length - 1];
-            const tailIsEmptyAssistant =
-              tail?.role === "assistant" &&
-              !tail.content &&
-              !tail.thinking &&
-              (!tail.toolCalls || tail.toolCalls.length === 0);
-            if (tailIsEmptyAssistant) {
-              const newIdx = assembled.length - 1;
-              if (
-                curIndex >= 0 &&
-                curIndex !== newIdx &&
-                assembled[curIndex]?.role === "assistant"
-              ) {
-                closeTimelineAt(curIndex);
+              setCtx(lastTokens);
+              patchCur({ completionTokens: lastTokens.completion });
+            } else if (t === "assistant_message") {
+              const cur = assembled[curIndex];
+              patchCur({
+                content: obj.content !== undefined ? String(obj.content) : cur.content,
+                thinking: obj.thinking !== undefined ? String(obj.thinking) : cur.thinking,
+                toolCalls: obj.toolCalls as ChatMessage["toolCalls"],
+                ...(typeof obj.stopReason === "string"
+                  ? { stopReason: obj.stopReason as ChatMessage["stopReason"] }
+                  : {}),
+              });
+            } else if (t === "tool_call") {
+              const callId = String(obj.id ?? uid());
+              const toolName = String(obj.name ?? "");
+              openToolPhase(toolName, callId);
+              assembled.push({
+                id: callId,
+                role: "tool",
+                content: "(running…)",
+                toolName,
+                toolArgs:
+                  obj.arguments && typeof obj.arguments === "object"
+                    ? (obj.arguments as Record<string, unknown>)
+                    : undefined,
+                createdAt: Date.now(),
+              });
+              scheduleFlush();
+            } else if (t === "tool_result") {
+              const callId = obj.id ? String(obj.id) : null;
+              if (callId) closeToolPhase(callId, Boolean(obj.ok));
+              for (let i = assembled.length - 1; i >= 0; i--) {
+                if (callId ? assembled[i].role === "tool" && assembled[i].id === callId : assembled[i].role === "tool") {
+                  assembled[i] = { ...assembled[i], content: String(obj.summary ?? "") };
+                  break;
+                }
               }
-              curIndex = newIdx;
-            } else {
-              startNewAssistant();
+              scheduleFlush();
+              const tail = assembled[assembled.length - 1];
+              const tailIsEmptyAssistant =
+                tail?.role === "assistant" &&
+                !tail.content &&
+                !tail.thinking &&
+                (!tail.toolCalls || tail.toolCalls.length === 0);
+              if (tailIsEmptyAssistant) {
+                const newIdx = assembled.length - 1;
+                if (curIndex >= 0 && curIndex !== newIdx && assembled[curIndex]?.role === "assistant") {
+                  closeTimelineAt(curIndex);
+                }
+                curIndex = newIdx;
+              } else {
+                startNewAssistant();
+              }
+            } else if (t === "tool_approval_required") {
+              needsApproval = true;
+              setPendingApproval({
+                token: String(obj.token ?? ""),
+                toolName: String(obj.toolName ?? ""),
+                arguments: (obj.arguments as Record<string, unknown>) ?? {},
+                index: 0,
+              });
+            } else if (t === "error") {
+              const cur = assembled[curIndex];
+              patchCur({ content: cur.content + `\n\n**error:** ${String(obj.message ?? "")}` });
+            } else if (t === "end") {
+              // Job completed — done
+              return;
             }
-          } else if (t === "tool_approval_required") {
-            pause = {
-              token: String(obj.token ?? ""),
-              toolName: String(obj.toolName ?? ""),
-              arguments:
-                (obj.arguments as Record<string, unknown>) ?? {},
-              index: Number(obj.index ?? 0),
-            };
-            // Stream will close next; let the reader drain.
-          } else if (t === "error") {
-            const cur = assembled[curIndex];
-            patchCur({
-              content:
-                cur.content + `\n\n**error:** ${String(obj.message ?? "")}`,
-            });
           }
         }
+
+        // Stream ended. If it was for approval, wait for user decision then resume.
+        if (needsApproval) {
+          const decision = await new Promise<{
+            decision: "approve" | "deny" | "cancel";
+            persist: "none" | "tool" | "all";
+          }>((resolve) => { approvalDeciderRef.current = resolve; });
+          approvalDeciderRef.current = null;
+          setPendingApproval(null);
+
+          if (decision.decision === "cancel") {
+            await fetch(`/api/jobs/${jobId}/approve`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ decision: "cancel" }),
+            });
+            return;
+          }
+
+          // Update approval lists
+          if (decision.persist === "tool") {
+            cumulativeApproved = new Set([...cumulativeApproved, pendingApproval?.toolName ?? ""]);
+            setSessionApprovedTools(cumulativeApproved);
+          } else if (decision.persist === "all") {
+            cumulativeApproved = new Set(allTools.map(t => t.name));
+            setSessionApprovedTools(cumulativeApproved);
+          }
+
+          await fetch(`/api/jobs/${jobId}/approve`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              decision: decision.decision,
+              autoApproveTools: [...cumulativeApproved],
+            }),
+          });
+
+          // Reconnect to continue watching events
+          continue;
+        }
+
+        // Stream ended without approval pause — server closed it
+        // (completed/failed/aborted or disconnect). Try one reconnect
+        // if the job is still running.
+        const statusRes = await fetch(`/api/jobs/${jobId}`).catch(() => null);
+        if (!statusRes || !statusRes.ok) return;
+        const status = (await statusRes.json()).status;
+        if (status === "running" || status === "paused") {
+          // Reconnect
+          continue;
+        }
+        // Terminal state — we're done
+        return;
       }
-      return pause;
     }
 
     try {
-      let nextFetch: { url: string; body: unknown } = {
-        url: "/api/chat",
-        body: initialPayload,
-      };
+      // Persist the user message to the session JSONL so it's on disk
+      // immediately. The server's job runner only appends assistant +
+      // tool messages; the user turn is the client's responsibility.
+      await persist(sid, assembled, { prompt: 0, completion: 0 });
 
-      // Accumulates approvals ACROSS iterations of the approval loop
-      // below. We can't re-read sessionApprovedTools each iteration
-      // because handleSend captured it as a closure value on entry;
-      // setSessionApprovedTools updates React state but not this
-      // closure. Without cumulativeApproved, a turn with several
-      // parallel tool gates would send only the LATEST tool in each
-      // resume's autoApproveTools list — dropping previously-approved
-      // tools and re-prompting the user for the same tool later in the
-      // same run.
-      let cumulativeApproved = new Set(sessionApprovedTools);
+      // 1. Create the job
+      const jobRes = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(initialPayload),
+        signal: ac.signal,
+      });
+      if (!jobRes.ok) throw new Error(`job creation failed: ${jobRes.status}`);
+      const { jobId } = (await jobRes.json()) as { jobId: string };
+      setActiveJobId(jobId);
+      lastEventIdRef.current = -1;
 
-      // Outer loop drives fresh + resumed streams. Exits when a stream
-      // ends without a pause event, or when the user cancels the pause.
-      while (true) {
-        const res = await fetch(nextFetch.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(nextFetch.body),
-          signal: ac.signal,
-        });
-        const pause = await consumeStream(res);
-        if (!pause) break;
+      // 2. Consume the job's event stream (reconnectable)
+      await consumeJobStream(jobId, ac);
 
-        // Suspend until the user picks Approve / Approve for session /
-        // Approve all / Deny / Cancel, or the abort controller fires.
-        setPendingApproval(pause);
-        const decision = await new Promise<{
-          decision: "approve" | "deny" | "cancel";
-          persist: "none" | "tool" | "all";
-        }>((resolve) => {
-          approvalDeciderRef.current = resolve;
-        });
-        approvalDeciderRef.current = null;
-        setPendingApproval(null);
-
-        if (decision.decision === "cancel") {
-          break;
-        }
-
-        // Update the accumulating allowlist BEFORE the resume POST so
-        // subsequent gated calls in this run skip approval. React state
-        // also mirrors it for the NEXT user-initiated turn.
-        if (decision.persist === "tool") {
-          cumulativeApproved = new Set([
-            ...cumulativeApproved,
-            pause.toolName,
-          ]);
-          setSessionApprovedTools(cumulativeApproved);
-        } else if (decision.persist === "all") {
-          cumulativeApproved = new Set(allTools.map((t) => t.name));
-          setSessionApprovedTools(cumulativeApproved);
-        }
-        nextFetch = {
-          url: "/api/chat/resume",
-          body: {
-            token: pause.token,
-            decision: decision.decision,
-            autoApproveTools: [...cumulativeApproved],
-          },
-        };
-      }
-
+      // Trim trailing empty assistant placeholder
       while (assembled.length) {
         const last = assembled[assembled.length - 1];
         const empty =
@@ -1044,7 +1056,6 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         assembled.pop();
       }
       // Close the final turn's timeline so open phases get stamped.
-      // Skip if the trim above popped the tail we were writing into.
       if (
         curIndex >= 0 &&
         curIndex < assembled.length &&
@@ -1053,7 +1064,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         closeTimelineAt(curIndex);
       }
       flushNow();
-      await persist(sid, assembled, lastTokens);
+      setActiveJobId(null);
     } catch (e) {
       if ((e as Error).name !== "AbortError") {
         setMessages((prev) => [
@@ -1070,6 +1081,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       setStreaming(false);
       streamingRef.current = false;
       abortRef.current = null;
+      setActiveJobId(null);
       loadSessions();
     }
   }
@@ -1083,8 +1095,12 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       setPendingApproval(null);
       decider({ decision: "cancel", persist: "none" });
     }
+    if (activeJobId) {
+      fetch(`/api/jobs/${activeJobId}`, { method: "DELETE" }).catch(() => {});
+      setActiveJobId(null);
+    }
     abortRef.current?.abort();
-  }, []);
+  }, [activeJobId]);
 
   // Dedup guard: a streaming assistant message can re-render many times
   // while content accumulates. ArtifactBlock fires onAutoFix per mount
