@@ -1,3 +1,4 @@
+import type { SavedPrompt } from "@/lib/types";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -36,6 +37,7 @@ export type Settings = {
     path: string;
     defaults: LlamaDefaults;
   };
+  prompts: SavedPrompt[];
 };
 
 const DEFAULT_TTL_DAYS = 15;
@@ -72,6 +74,7 @@ const DEFAULTS: Settings = {
       noContextShift: true,
     },
   },
+  prompts: [],
 };
 
 function clampTtl(n: unknown): number {
@@ -143,6 +146,7 @@ export async function readSettings(): Promise<Settings> {
               : DEFAULTS.llamaServer.defaults.noContextShift,
         },
       },
+      prompts: Array.isArray(parsed.prompts) ? parsed.prompts : DEFAULTS.prompts,
     };
   } catch {
     return DEFAULTS;
@@ -164,6 +168,7 @@ export type SettingsPatch = {
     path?: string;
     defaults?: Partial<LlamaDefaults>;
   };
+  prompts?: SavedPrompt[];
 };
 
 export async function writeSettings(patch: SettingsPatch): Promise<Settings> {
@@ -205,6 +210,7 @@ export async function writeSettings(patch: SettingsPatch): Promise<Settings> {
           patch.llamaServer?.defaults?.noContextShift ?? cur.llamaServer.defaults.noContextShift,
       },
     },
+    prompts: patch.prompts ?? cur.prompts,
   };
   await fs.mkdir(path.dirname(SETTINGS_FILE), { recursive: true });
   await fs.writeFile(SETTINGS_FILE, JSON.stringify(next, null, 2));

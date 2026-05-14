@@ -73,6 +73,9 @@ export async function PATCH(req: Request) {
         patch.llamaServer.defaults.noContextShift = d.noContextShift;
     }
   }
+  if (Array.isArray(body?.prompts)) {
+    patch.prompts = body.prompts;
+  }
   const settings = await writeSettings(patch);
   return NextResponse.json({ settings });
 }

@@ -169,3 +169,12 @@ export type MemoryEntry = {
   vectorPending?: boolean;
 };
 
+export type SavedPrompt = {
+  id: string;
+  name: string;
+  text: string;
+  artifactsEnabled: boolean;
+  obsidianEnabled: boolean;
+  createdAt: number;
+};
+

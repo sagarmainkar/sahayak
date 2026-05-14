@@ -11,7 +11,7 @@ import { executeCommand, pipInstall } from "./shell";
 import { webSearch, webFetch } from "./web";
 import { artifactCreate, artifactWriteFile } from "./artifact";
 import { remember, recallMemory, listAllMemories } from "./memory";
-import { gmailSearch, gmailRead } from "./gmail";
+import { gmailSearch, gmailRead, gmailDelete, gmailReply, gmailLabel } from "./gmail";
 import { askUser } from "./askUser";
 import { callMcpTool, getAllMcpTools } from "@/lib/mcp/registry";
 
@@ -35,6 +35,9 @@ export const ALL_TOOLS: ToolSpec[] = [
   artifactWriteFile,
   gmailSearch,
   gmailRead,
+  gmailDelete,
+  gmailReply,
+  gmailLabel,
 ];
 
 /**

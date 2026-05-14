@@ -14,8 +14,19 @@ import { CONFIG_DIR } from "@/lib/paths";
  *   }
  *
  * Generate the refresh token once with the (optional) Python helper
- * or any standard OAuth desktop-flow tool, using scope
- *   https://www.googleapis.com/auth/gmail.readonly
+ * or any standard OAuth desktop-flow tool. Choose scopes based on needs:
+ *
+ *   Scope                          | Tools
+ *   ------------------------------ | ---------------------------
+ *   gmail.readonly                 | gmail_search, gmail_read
+ *   gmail.modify                   | gmail_delete, gmail_label
+ *   gmail.send  (or gmail.compose) | gmail_reply
+ *
+ *   Recommended (all-in-one):
+ *     https://www.googleapis.com/auth/gmail.modify
+ *   or for full control:
+ *     https://www.googleapis.com/auth/gmail.modify
+ *     https://www.googleapis.com/auth/gmail.send
  *
  * Access tokens are exchanged lazily and cached in-memory on
  * globalThis so Next dev-server hot-reloads don't keep hitting
@@ -39,11 +50,17 @@ type CachedToken = {
 // Swap file + token cache live on globalThis so dev HMR doesn't
 // trigger fresh OAuth exchanges on every module reload.
 const CACHE_KEY = "__sahayakGmailToken";
+const INFLIGHT_KEY = "__sahayakGmailTokenInflight";
 type Cache = { token: CachedToken | null };
 function cache(): Cache {
   const g = globalThis as unknown as { [CACHE_KEY]?: Cache };
   if (!g[CACHE_KEY]) g[CACHE_KEY] = { token: null };
   return g[CACHE_KEY]!;
+}
+function inflight(): { p: Promise<CachedToken> | null } {
+  const g = globalThis as unknown as { [INFLIGHT_KEY]?: { p: Promise<CachedToken> | null } };
+  if (!g[INFLIGHT_KEY]) g[INFLIGHT_KEY] = { p: null };
+  return g[INFLIGHT_KEY]!;
 }
 
 export class GmailNotConfiguredError extends Error {
@@ -117,17 +134,19 @@ async function refreshAccessToken(creds: GmailCreds): Promise<CachedToken> {
  *  as a friendly "set up .config/gmail.json" message. */
 export async function getAccessToken(): Promise<string> {
   const c = cache();
-  const now = Date.now();
-  if (c.token && c.token.expiresAt > now) {
-    return c.token.accessToken;
+  if (c.token && c.token.expiresAt > Date.now()) return c.token.accessToken;
+  const inf = inflight();
+  if (!inf.p) {
+    inf.p = readCreds()
+      .then(refreshAccessToken)
+      .then((t) => { c.token = t; return t; })
+      .finally(() => { inf.p = null; });
   }
-  const creds = await readCreds();
-  c.token = await refreshAccessToken(creds);
-  return c.token.accessToken;
+  return (await inf.p).accessToken;
 }
 
-/** Force a fresh token exchange. Call after a 401 from the API so
- *  transient upstream rejections don't serve a stale token next. */
+/** Force the next getAccessToken() to re-exchange the refresh token.
+ *  Used after a 401 to recover from a revoked/expired token. */
 export function invalidateToken(): void {
   cache().token = null;
 }

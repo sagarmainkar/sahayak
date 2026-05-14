@@ -14,9 +14,11 @@ import {
   Unlock,
   LayoutTemplate,
   Plus,
+  Bookmark,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { MEMORY_TYPES, type MemoryType, type MsgAttachment } from "@/lib/types";
+import { MEMORY_TYPES, type MemoryType, type MsgAttachment, type SavedPrompt } from "@/lib/types";
 import { TEMPLATE_META } from "@/lib/templates";
 
 type SlashOutcome =
@@ -243,6 +245,17 @@ export function Composer({
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const templateBtnRef = useRef<HTMLButtonElement | null>(null);
   const templateMenuRef = useRef<HTMLDivElement | null>(null);
+  // ─── Saved Prompts ───────────────────────────────────────────────
+  const [prompts, setPrompts] = useState<SavedPrompt[]>([]);
+  const [showPromptPicker, setShowPromptPicker] = useState(false);
+  const [showPromptSave, setShowPromptSave] = useState(false);
+  const [promptSaveName, setPromptSaveName] = useState("");
+  const promptBtnRef = useRef<HTMLButtonElement | null>(null);
+  const promptMenuRef = useRef<HTMLDivElement | null>(null);
+  const [promptCoords, setPromptCoords] = useState<{
+    bottom: number;
+    left: number;
+  } | null>(null);
   // Fixed-position coords for the portal'd menu. Anchored above the
   // button — the composer lives at the bottom of the viewport so the
   // menu opens upward. Capturing via getBoundingClientRect sidesteps
@@ -293,6 +306,54 @@ export function Composer({
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, [showTemplatePicker]);
+  // Click-outside closer for prompt picker.
+  useEffect(() => {
+    if (!showPromptPicker) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (promptBtnRef.current?.contains(t)) return;
+      if (promptMenuRef.current?.contains(t)) return;
+      setShowPromptPicker(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [showPromptPicker]);
+  // Position prompt picker portal.
+  useEffect(() => {
+    if (!showPromptPicker) return;
+    function place() {
+      const el = promptBtnRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const menuWidth = Math.min(320, window.innerWidth - 24);
+      const left = Math.max(
+        12,
+        Math.min(r.left, window.innerWidth - menuWidth - 12),
+      );
+      setPromptCoords({
+        bottom: window.innerHeight - r.top + 6,
+        left,
+      });
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [showPromptPicker]);
+  // Load saved prompts from settings on mount.
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d?.settings?.prompts)) {
+          setPrompts(d.settings.prompts);
+        }
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
   const [slashNote, setSlashNote] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -323,6 +384,59 @@ export function Composer({
   function flashNote(msg: string, ms = 2500) {
     setSlashNote(msg);
     setTimeout(() => setSlashNote((cur) => (cur === msg ? null : cur)), ms);
+  }
+
+  // ─── Saved Prompts ───────────────────────────────────────────────
+  async function persistPrompts(next: SavedPrompt[]) {
+    try {
+      const r = await fetch("/api/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompts: next }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setPrompts(next);
+    } catch {
+      flashNote("Failed to save prompts", 3000);
+    }
+  }
+
+  function applyPrompt(p: SavedPrompt) {
+    setInput(p.text);
+    setArtifactsEnabled(p.artifactsEnabled);
+    if (p.obsidianEnabled !== obsidianEnabled) {
+      onObsidianToggle?.();
+    }
+    setShowPromptPicker(false);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+    flashNote(`Loaded prompt: ${p.name}`, 2000);
+  }
+
+  async function saveCurrentPrompt() {
+    const name = promptSaveName.trim();
+    if (!name) return;
+    const text = input.trim();
+    if (!text) return;
+    const next: SavedPrompt[] = [
+      ...prompts,
+      {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        name,
+        text,
+        artifactsEnabled,
+        obsidianEnabled: obsidianEnabled ?? false,
+        createdAt: Date.now(),
+      },
+    ];
+    await persistPrompts(next);
+    setShowPromptSave(false);
+    setPromptSaveName("");
+    flashNote(`Saved prompt: ${name}`, 2000);
+  }
+
+  async function deletePrompt(id: string) {
+    const next = prompts.filter((p) => p.id !== id);
+    await persistPrompts(next);
   }
 
   // In-app voice recording + /api/transcribe removed for the
@@ -677,6 +791,24 @@ export function Composer({
           >
             <LayoutTemplate className="h-3.5 w-3.5" />
           </button>
+          <button
+            type="button"
+            ref={promptBtnRef}
+            onClick={() => {
+              setShowPromptPicker((v) => !v);
+              setShowPromptSave(false);
+            }}
+            className={cn(
+              "tt tt-above flex flex-shrink-0 items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] hover:bg-bg-muted",
+              prompts.length > 0
+                ? "text-fg-subtle hover:text-fg"
+                : "text-fg-subtle hover:text-fg",
+            )}
+            data-tip="Saved prompts: Load a previously saved prompt into the composer"
+            aria-expanded={showPromptPicker}
+          >
+            <Bookmark className="h-3.5 w-3.5" />
+          </button>
           {onObsidianToggle && (
             <button
               type="button"
@@ -763,6 +895,128 @@ export function Composer({
               document.body,
             )}
           </div>
+          {showPromptPicker &&
+            promptCoords &&
+            typeof document !== "undefined" &&
+            createPortal(
+              <div
+                ref={promptMenuRef}
+                style={{
+                  position: "fixed",
+                  bottom: promptCoords.bottom,
+                  left: promptCoords.left,
+                  width: "min(20rem, calc(100vw - 1.5rem))",
+                }}
+                className="z-50 rounded-lg border border-border bg-bg-elev p-1.5 shadow-lg"
+              >
+                <div className="byline px-2 pb-1.5 pt-1">
+                  saved prompts
+                </div>
+                {showPromptSave ? (
+                  <div className="flex flex-col gap-1.5 px-1 py-1">
+                    <input
+                      type="text"
+                      value={promptSaveName}
+                      onChange={(e) => setPromptSaveName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveCurrentPrompt();
+                        if (e.key === "Escape") {
+                          setShowPromptSave(false);
+                          setPromptSaveName("");
+                        }
+                      }}
+                      placeholder="Name this prompt…"
+                      autoFocus
+                      className="w-full rounded border border-border bg-bg px-2 py-1 font-sans text-[12px] text-fg focus:border-accent focus:outline-none"
+                    />
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={saveCurrentPrompt}
+                        disabled={!promptSaveName.trim() || !input.trim()}
+                        className="flex flex-1 items-center justify-center gap-1 rounded bg-accent px-2 py-1 font-sans text-[11px] font-medium text-accent-fg hover:opacity-90 disabled:opacity-40"
+                      >
+                        <Bookmark className="h-3 w-3" />
+                        Save
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowPromptSave(false);
+                          setPromptSaveName("");
+                        }}
+                        className="rounded border border-border px-2 py-1 font-sans text-[11px] text-fg-muted hover:text-fg"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {input.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPromptSave(true);
+                          setPromptSaveName(input.trim().slice(0, 40));
+                        }}
+                        className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-bg-muted"
+                      >
+                        <Bookmark className="h-3.5 w-3.5 text-accent" />
+                        <span className="font-sans text-[12.5px] font-medium text-fg">
+                          💾 Save current prompt
+                        </span>
+                      </button>
+                    )}
+                    <div className="flex flex-col">
+                      {prompts.length === 0 && !input.trim() && (
+                        <div className="px-2 py-2 font-serif text-[11.5px] italic text-fg-muted">
+                          No saved prompts yet.
+                        </div>
+                      )}
+                      {prompts.map((p) => (
+                        <div
+                          key={p.id}
+                          className="group flex items-center gap-1"
+                        >
+                          <button
+                            type="button"
+                            onClick={() => applyPrompt(p)}
+                            className="flex flex-1 items-start gap-2 rounded-sm px-2 py-1.5 text-left transition-colors hover:bg-bg-muted"
+                          >
+                            <Bookmark className="mt-[2px] h-3.5 w-3.5 text-fg-subtle" />
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate font-sans text-[12.5px] font-medium text-fg">
+                                {p.name}
+                              </div>
+                              <div className="flex items-center gap-1.5 font-serif text-[10.5px] italic text-fg-subtle">
+                                {p.artifactsEnabled && (
+                                  <span className="text-accent">✨ artifact</span>
+                                )}
+                                {p.obsidianEnabled && (
+                                  <span className="text-accent">🔮 obsidian</span>
+                                )}
+                                <span>{new Date(p.createdAt).toLocaleDateString()}</span>
+                              </div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deletePrompt(p.id);
+                            }}
+                            className="rounded p-1 text-fg-muted opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                            aria-label="Delete prompt"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>,
+              document.body,
+            )}
           {streaming ? (
             <button
               onClick={onAbort}

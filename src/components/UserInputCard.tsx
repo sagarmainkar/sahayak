@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MessageCircleQuestion, Send } from "lucide-react";
+import { Markdown } from "./Markdown";
 
 export function UserInputCard({
   question,
@@ -22,9 +23,9 @@ export function UserInputCard({
           <span className="font-medium">Input needed</span>
         </div>
         <div className="px-3 py-3">
-          <p className="font-serif text-[14px] leading-relaxed text-fg">
-            {question}
-          </p>
+          <div className="prose text-[14px] leading-relaxed">
+            <Markdown text={question} />
+          </div>
           {options.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-1.5">
               {options.map((opt) => (

@@ -1234,8 +1234,10 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       }))
     )
       return;
-    await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+    // Optimistic: remove from sidebar immediately so the user sees feedback
+    setSessions((prev) => prev ? prev.filter((s) => s.id !== id) : prev);
     if (sessionId === id) newSession();
+    await fetch(`/api/sessions/${id}`, { method: "DELETE" });
     loadSessions();
   }
 
