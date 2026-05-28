@@ -869,6 +869,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
       // tells the server which local OpenAI-compat endpoint to hit.
       provider: assistant.provider ?? "ollama",
       llamaUrl: assistant.llamaUrl,
+      worker: assistant.worker,
     };
 
     const ac = new AbortController();
