@@ -40,6 +40,12 @@ const jobs = new Map<string, Job>();
 
 const JOB_TTL_MS = 30 * 60 * 1000;
 
+/** Hard cap on stored events per job. Character-level deltas produce
+ *  thousands of events per turn — without this, multi-turn sessions
+ *  accumulate 50K+ events and replay on reconnect blocks the Node.js
+ *  event loop (which also blocks abort/Stop handling). */
+const MAX_JOB_EVENTS = 2000;
+
 function sweep() {
   const cutoff = Date.now() - JOB_TTL_MS;
   for (const [id, job] of jobs) {
@@ -93,11 +99,48 @@ export function listActiveJobs(): Job[] {
   );
 }
 
+/** Monotonically-increasing event id across all jobs. Using a global
+ *  counter instead of array length means ids stay valid even after the
+ *  ring buffer evicts old entries. */
+let nextEventId = 0;
+
 export function appendEvent(jobId: string, data: Record<string, unknown>): void {
   const job = jobs.get(jobId);
   if (!job) return;
-  const event: JobEvent = { id: job.events.length, data };
+
+  // Coalesce consecutive text/thinking deltas into one stored event.
+  // Character-level streaming produces thousands of deltas per turn;
+  // merging them into one event per message_update batch keeps the
+  // replay buffer small without affecting live subscribers (they
+  // still get real-time deltas via the subscriber callback below).
+  const lastEvent = job.events[job.events.length - 1];
+  const isDelta =
+    (data.type === "content" || data.type === "thinking") &&
+    typeof data.delta === "string";
+  if (
+    isDelta &&
+    lastEvent &&
+    lastEvent.data.type === data.type &&
+    typeof lastEvent.data.delta === "string"
+  ) {
+    // Mutate in-place: extend the stored delta text.
+    (lastEvent.data.delta as string) += data.delta as string;
+    // But notify live subscribers with the ORIGINAL incremental
+    // delta so the UI streams character-by-character.
+    const event: JobEvent = { id: nextEventId++, data };
+    for (const cb of job.subscribers) {
+      cb(event);
+    }
+    job.updatedAt = Date.now();
+    return;
+  }
+
+  const event: JobEvent = { id: nextEventId++, data };
   job.events.push(event);
+  // Ring buffer: evict oldest when over the cap.
+  while (job.events.length > MAX_JOB_EVENTS) {
+    job.events.shift();
+  }
   job.updatedAt = Date.now();
   for (const cb of job.subscribers) {
     cb(event);
@@ -111,8 +154,15 @@ export function subscribe(
 ): (() => void) | null {
   const job = jobs.get(jobId);
   if (!job) return null;
+  // If the client is reconnecting from an id older than our ring
+  // buffer, start from the oldest available event rather than
+  // trying (and failing) to replay ancient history. The client
+  // already has the full session persisted via JSONL so it can
+  // reconstruct any gap on next page load.
+  const oldestId = job.events[0]?.id ?? 0;
+  const effectiveFrom = Math.max(fromEventId, oldestId);
   for (const event of job.events) {
-    if (event.id >= fromEventId) {
+    if (event.id >= effectiveFrom) {
       cb(event);
     }
   }
