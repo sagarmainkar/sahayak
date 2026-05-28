@@ -346,6 +346,66 @@ export function AssistantEditor({
               </span>
             </label>
           </div>
+
+          {/* ── Worker model ──────────────────────────────── */}
+          <div className="mt-4">
+            <label className="flex items-center gap-2 font-sans text-[12.5px] text-fg-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!form.worker}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    worker: e.target.checked
+                      ? { model: "", provider: (form.provider ?? "ollama") as "ollama" | "llama-cpp" | "bedrock" }
+                      : undefined,
+                  })
+                }
+                className="rounded border-border accent-accent"
+              />
+              <span>Use worker model</span>
+              <span className="text-[11px] text-fg-subtle">
+                (delegate heavy work to a cheaper model)
+              </span>
+            </label>
+            {form.worker && (
+              <div className="mt-2 ml-6 p-3 rounded-md border border-border bg-bg-paper">
+                <Field label="Worker model">
+                  <select
+                    value={form.worker.model ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        worker: { ...form.worker!, model: e.target.value },
+                      })
+                    }
+                    className="w-full rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
+                  >
+                    {models.length === 0 ? (
+                      <option value="" disabled>
+                        no models found
+                      </option>
+                    ) : (
+                      <>
+                        <option value="" disabled>
+                          select a worker model
+                        </option>
+                        {models
+                          .filter((m) => m.name !== form.model)
+                          .map((m) => (
+                            <option key={m.name} value={m.name}>
+                              {m.name}
+                              {m.params ? ` — ${m.params}` : ""}
+                              {m.quant ? ` ${m.quant}` : ""}
+                            </option>
+                          ))}
+                      </>
+                    )}
+                  </select>
+                </Field>
+              </div>
+            )}
+          </div>
         </Section>
 
         <Section
