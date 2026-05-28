@@ -14,6 +14,7 @@ import { remember, recallMemory, listAllMemories } from "./memory";
 import { gmailSearch, gmailRead, gmailDelete, gmailReply, gmailCompose, gmailLabel } from "./gmail";
 import { askUser } from "./askUser";
 import { callMcpTool, getAllMcpTools } from "@/lib/mcp/registry";
+import { delegateToWorkerSpec } from "./delegateToWorker";
 
 /**
  * User-facing tools. Surfaced in the assistant editor's tool picker,
@@ -55,7 +56,7 @@ const IMPLICIT_TOOLS: ToolSpec[] = [remember, recallMemory, listAllMemories, ask
 export const IMPLICIT_TOOL_NAMES = new Set(IMPLICIT_TOOLS.map((t) => t.name));
 
 export const TOOLS_BY_NAME = Object.fromEntries(
-  [...ALL_TOOLS, ...IMPLICIT_TOOLS].map((t) => [t.name, t]),
+  [...ALL_TOOLS, ...IMPLICIT_TOOLS, delegateToWorkerSpec].map((t) => [t.name, t]),
 );
 
 /** Wrap an MCP tool discovery record into a Sahayak ToolSpec so both
@@ -128,7 +129,7 @@ export async function allToolSpecs(): Promise<ToolSpec[]> {
   } catch {
     // A broken server shouldn't block native tool discovery.
   }
-  return [...ALL_TOOLS, ...IMPLICIT_TOOLS, ...mcp];
+  return [...ALL_TOOLS, ...IMPLICIT_TOOLS, delegateToWorkerSpec, ...mcp];
 }
 
 export async function toolsForOllama(enabled: string[]) {

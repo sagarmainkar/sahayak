@@ -11,6 +11,15 @@ import type { AssistantProvider } from "@/lib/types";
 
 type Controller = ReadableStreamDefaultController<Uint8Array>;
 
+type Decision = "approve" | "deny" | "cancel";
+
+/** Approval request the worker sends to the user through the manager's
+ *  SSE stream. Resolved when the user clicks approve/deny/cancel. */
+export type WorkerApprovalRequest = {
+  toolName: string;
+  arguments: Record<string, unknown>;
+};
+
 export type WorkerContext = {
   /** SSE controller for forwarding worker events to the client. */
   controller: Controller;
@@ -35,6 +44,12 @@ export type WorkerContext = {
    *  when the worker starts; cleared when it finishes. The main job's
    *  abort path reads this to propagate Stop to the worker. */
   activeWorker: { abort: () => void } | null;
+  /** Request tool-call approval from the user through the manager's
+   *  SSE stream. Returns the user's decision. */
+  requestApproval: (
+    req: WorkerApprovalRequest,
+    workerAgent: { abort: () => void },
+  ) => Promise<Decision>;
 };
 
 const registry = new Map<string, WorkerContext>();
