@@ -25,6 +25,14 @@ import {
 } from "@/lib/piAdapters";
 import type { ClientMsg } from "@/lib/toolLoop";
 import { IMPLICIT_TOOL_NAMES } from "@/lib/tools";
+import { delegateToWorkerSpec } from "@/lib/tools/delegateToWorker";
+import {
+  setWorkerContext,
+  clearWorkerContext,
+  getWorkerContext,
+  type WorkerApprovalRequest,
+} from "@/lib/workerRegistry";
+import { piToolFromSpec } from "@/lib/piAdapters";
 import type { ChatMessage } from "@/lib/types";
 
 export type JobRunnerInput = {
@@ -42,10 +50,19 @@ export type JobRunnerInput = {
   provider: "ollama" | "llama-cpp" | "bedrock";
   llamaBaseUrl?: string;
   bedrockRegion?: string;
+  /** Optional worker model config. Same shape as Assistant.worker. */
+  workerConfig?: {
+    model: string;
+    provider?: "ollama" | "llama-cpp" | "bedrock";
+    llamaUrl?: string;
+    bedrockRegion?: string;
+    systemPrompt?: string;
+  };
 };
 
 export function spawnJobRunner(input: JobRunnerInput): void {
   runJob(input).catch((err: unknown) => {
+    clearWorkerContext(input.sessionId);
     appendEvent(input.jobId, {
       type: "error",
       message: (err as Error).message ?? String(err),
@@ -67,6 +84,7 @@ async function runJob(input: JobRunnerInput): Promise<void> {
     sessionId,
     provider,
     llamaBaseUrl,
+    workerConfig,
   } = input;
 
   const scope = { assistantId, sessionId };
@@ -80,6 +98,40 @@ async function runJob(input: JobRunnerInput): Promise<void> {
         : piModelForOllama(model);
 
   const tools = await piToolsFromEnabled(enabledTools, scope);
+
+  // ── Worker delegation ────────────────────────────────────────────
+  let resolvedSystemPrompt = systemPrompt;
+  if (workerConfig) {
+    const workerTool = piToolFromSpec(delegateToWorkerSpec, scope);
+    tools.push(workerTool);
+
+    resolvedSystemPrompt = `${systemPrompt}
+
+## Worker delegation
+
+You have a worker model (\`${workerConfig.model}\`) available via \`delegate_to_worker\`. Use it to offload self-contained heavy work. The worker has the same tools as you. Its tool calls and output are visible in the chat.
+
+**Delegate:** large code generation, multi-file analysis, multi-step research.
+**Don't delegate:** simple one-step tasks, user-facing responses, tasks needing conversation history.
+You are responsible for the final answer. Review worker output before using it. Re-delegate if unsatisfied.`;
+
+    // Register worker context for the delegate_to_worker handler.
+    // Worker tool approval is auto-approved in the background job
+    // path to avoid complexity with nested job.pendingApproval state.
+    setWorkerContext(sessionId, {
+      controller: null as unknown as ReadableStreamDefaultController<Uint8Array>,
+      enabledTools,
+      scope,
+      approvalState: {
+        autoApproveTools: input.autoApproveTools ?? [],
+        requireApproval: input.requireApproval ?? [],
+      },
+      workerConfig,
+      activeWorker: null,
+      requestApproval: async () => "approve",
+    });
+  }
+
   const messages = await toPiMessages(clientMessages, scope);
 
   let turnCount = 0;
@@ -87,7 +139,7 @@ async function runJob(input: JobRunnerInput): Promise<void> {
 
   const agent = new Agent({
     initialState: {
-      systemPrompt,
+      systemPrompt: resolvedSystemPrompt,
       model: piModel,
       tools,
       thinkingLevel: piThinkLevel(think),
@@ -154,7 +206,16 @@ async function runJob(input: JobRunnerInput): Promise<void> {
     },
   });
 
-  setJobAbort(jobId, () => agent.abort());
+  setJobAbort(jobId, () => {
+    // Abort any active worker first.
+    const wc = getWorkerContext(sessionId);
+    if (wc?.activeWorker) {
+      wc.activeWorker.abort();
+      wc.activeWorker = null;
+    }
+    clearWorkerContext(sessionId);
+    agent.abort();
+  });
 
   agent.subscribe(async (event: AgentEvent) => {
     try {
@@ -274,6 +335,7 @@ async function runJob(input: JobRunnerInput): Promise<void> {
       }
 
       if (event.type === "agent_end") {
+        clearWorkerContext(sessionId);
         appendEvent(jobId, { type: "end" });
         setJobStatus(jobId, "completed");
         return;

@@ -48,9 +48,10 @@ import {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-type Controller = ReadableStreamDefaultController<Uint8Array>;
+type Controller = ReadableStreamDefaultController<Uint8Array> | null;
 
-function sse(ctrl: Controller, obj: Record<string, unknown>) {
+function sse(ctrl: Controller | null, obj: Record<string, unknown>) {
+  if (!ctrl) return;
   const data = JSON.stringify(obj);
   ctrl.enqueue(new TextEncoder().encode(`data: ${data}\n\n`));
 }

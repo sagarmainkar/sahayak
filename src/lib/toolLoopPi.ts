@@ -12,11 +12,19 @@ import {
   piModelForOllama,
   piModelForOpenAICompat,
   piThinkLevel,
+  piToolFromSpec,
   piToolsFromEnabled,
   toPiMessages,
 } from "@/lib/piAdapters";
 import type { ClientMsg } from "@/lib/toolLoop";
 import { IMPLICIT_TOOL_NAMES } from "@/lib/tools";
+import {
+  setWorkerContext,
+  clearWorkerContext,
+  getWorkerContext,
+  type WorkerApprovalRequest,
+} from "@/lib/workerRegistry";
+import { delegateToWorkerSpec } from "@/lib/tools/delegateToWorker";
 
 type Decision = "approve" | "deny" | "cancel";
 type Controller = ReadableStreamDefaultController<Uint8Array>;
@@ -52,6 +60,16 @@ export type PiRunInput = {
   /** Override the model's maxTokens. Compaction sets this to the
    *  summary budget so the model knows its output ceiling. */
   maxTokens?: number;
+  /** Optional worker model config. When set, the assistant gains a
+   *  `delegate_to_worker` tool and the system prompt is augmented
+   *  with delegation instructions. */
+  workerConfig?: {
+    model: string;
+    provider?: "ollama" | "llama-cpp" | "bedrock";
+    llamaUrl?: string;
+    bedrockRegion?: string;
+    systemPrompt?: string;
+  };
 };
 
 type PauseEntry = {
@@ -285,6 +303,47 @@ export async function startPiRun(
   const tools = input.bare
     ? []
     : await piToolsFromEnabled(input.enabledTools, scope);
+
+  // ── Worker delegation ────────────────────────────────────────────
+  // When the assistant has a worker configured, add the
+  // delegate_to_worker tool and augment the system prompt.
+  // The worker context registration happens later (after approvalState
+  // and ctrl are declared) because it references those variables.
+  let systemPrompt = input.systemPrompt;
+  if (input.workerConfig && !input.bare) {
+    const workerTool = piToolFromSpec(delegateToWorkerSpec, scope);
+    tools.push(workerTool);
+
+    const workerInstr = `
+
+## Worker delegation
+
+You have a worker model (\`${input.workerConfig.model}\`) available via \`delegate_to_worker\`. Use it to offload self-contained heavy work while you focus on orchestration.
+
+The worker has the same tools as you (read_file, bash, web_search, etc.). Its tool calls and output are visible in the chat — monitor its progress.
+
+**Delegate when:**
+- Large code generation or refactoring
+- Analysis of multiple files or large datasets
+- Multi-step research tasks
+- Any task that is self-contained (doesn't need your conversation history)
+
+**Don't delegate:**
+- Simple one-step tasks — just do them yourself
+- Tasks requiring conversation context the worker doesn't have
+- User-facing responses — you write those
+
+**How to delegate:**
+- Call \`delegate_to_worker\` with a clear, specific prompt
+- Include file paths the worker should read (optional)
+- Review the worker's output before using it
+- If unsatisfied, re-delegate with refinements or handle it yourself
+- If the worker returns an error with partial output, you may use the partial output and complete the task yourself
+
+You are responsible for the final answer. The worker is a helper, not a replacement.`;
+    systemPrompt = `${input.systemPrompt}${workerInstr}`;
+  }
+
   const messages = await toPiMessages(input.clientMessages, scope);
   // Mutable in place so resume's splice(0, ..., list) is visible to
   // beforeToolCall's isGated() check on the next pause.
@@ -299,6 +358,43 @@ export async function startPiRun(
     current: controller,
     unsub: null,
   };
+
+  // ── Worker context registration (after ctrl + approvalState) ─────
+  if (input.workerConfig && !input.bare) {
+    setWorkerContext(input.sessionId, {
+      controller,
+      enabledTools: input.enabledTools,
+      scope,
+      approvalState,
+      workerConfig: input.workerConfig,
+      activeWorker: null,
+      requestApproval: async (
+        req: WorkerApprovalRequest,
+        workerAgent: { abort: () => void },
+      ) => {
+        const token = nanoid(16);
+        sse(ctrl.current, {
+          type: "tool_approval_required",
+          source: "worker",
+          token,
+          toolName: req.toolName,
+          arguments: req.arguments,
+        });
+        const decision = await new Promise<Decision>((resolve) => {
+          pending.set(token, {
+            agent: workerAgent as unknown as Agent,
+            resolve,
+            autoApproveTools: [...approvalState.autoApproveTools],
+            requireApproval: [...approvalState.requireApproval],
+            createdAt: Date.now(),
+          });
+        });
+        pending.delete(token);
+        return decision;
+      },
+    });
+  }
+
   // Shared across translator rebinds — counts LLM turns (not individual
   // tool calls) to mirror the native path's maxToolTurns cap.
   const turnState = {
@@ -309,7 +405,7 @@ export async function startPiRun(
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: input.systemPrompt,
+      systemPrompt,
       model,
       tools: tools as AgentTool[],
       thinkingLevel: piThinkLevel(input.think),
@@ -384,6 +480,13 @@ export async function startPiRun(
         ctrl.unsub();
         ctrl.unsub = null;
       }
+      // Abort any active worker and clean up the registry entry.
+      const wc = getWorkerContext(input.sessionId);
+      if (wc?.activeWorker) {
+        wc.activeWorker.abort();
+        wc.activeWorker = null;
+      }
+      clearWorkerContext(input.sessionId);
       safeClose(ctrl.current);
       runStateByAgent.delete(agent);
     });
@@ -401,6 +504,13 @@ export async function startPiRun(
       ctrl.unsub();
       ctrl.unsub = null;
     }
+    // Clean up worker if one was running.
+    const wc = getWorkerContext(input.sessionId);
+    if (wc?.activeWorker) {
+      wc.activeWorker.abort();
+      wc.activeWorker = null;
+    }
+    clearWorkerContext(input.sessionId);
     safeClose(ctrl.current);
     runStateByAgent.delete(agent);
   });

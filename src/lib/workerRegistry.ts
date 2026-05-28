@@ -9,7 +9,7 @@
 
 import type { AssistantProvider } from "@/lib/types";
 
-type Controller = ReadableStreamDefaultController<Uint8Array>;
+type Controller = ReadableStreamDefaultController<Uint8Array> | null;
 
 type Decision = "approve" | "deny" | "cancel";
 
