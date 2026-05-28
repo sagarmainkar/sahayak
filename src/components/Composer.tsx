@@ -119,6 +119,7 @@ type Props = {
   onPendingAttachmentConsumed?: () => void;
   obsidianEnabled?: boolean;
   onObsidianToggle?: () => void;
+  hasVision?: boolean;
 };
 
 type UploadResponse = {
@@ -221,6 +222,7 @@ export function Composer({
   onPendingAttachmentConsumed,
   obsidianEnabled,
   onObsidianToggle,
+  hasVision,
 }: Props) {
   // Resolve the current session id only when actually uploading; a
   // fresh chat lazily creates its session on first interaction. Once
@@ -721,6 +723,7 @@ export function Composer({
               send on the right. Gives the typing area full width. */}
           <div className="hidden sm:flex items-center gap-1 border-t border-border/60 px-2 py-1.5">
           <div className="-mx-1 flex min-w-0 flex-1 flex-wrap items-center gap-1 px-1">
+          {hasVision && (
           <label
             className="tt tt-above flex flex-shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
             data-tip="Attach image: Add screenshots, photos, or diagrams for the model to see and analyze"
@@ -737,6 +740,7 @@ export function Composer({
               }}
             />
           </label>
+          )}
           <label
             className="tt tt-above flex cursor-pointer items-center gap-1 rounded px-1.5 py-1 font-sans text-[11px] text-fg-subtle hover:bg-bg-muted hover:text-fg"
             data-tip="Attach document: Upload PDF, Word, Excel, PowerPoint, or text files — content is extracted and sent as context"
@@ -1044,6 +1048,7 @@ export function Composer({
           <div className="flex sm:hidden items-center gap-2 border-t border-border/60 px-2 py-1.5">
             <MobileComposerActions
               addFiles={addFiles}
+              hasVision={hasVision}
               artifactsEnabled={artifactsEnabled}
               setArtifactsEnabled={setArtifactsEnabled}
               activeTemplate={activeTemplate}
@@ -1084,12 +1089,14 @@ export function Composer({
 
 function MobileComposerActions({
   addFiles,
+  hasVision,
   artifactsEnabled,
   setArtifactsEnabled,
   activeTemplate,
   setActiveTemplate,
 }: {
   addFiles: (files: FileList | File[]) => void;
+  hasVision?: boolean;
   artifactsEnabled: boolean;
   setArtifactsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   activeTemplate: string | null;
@@ -1140,6 +1147,7 @@ function MobileComposerActions({
           ref={menuRef}
           className="absolute bottom-full left-0 z-50 mb-2 w-56 rounded-lg border border-border bg-bg-elev p-1 shadow-[var(--shadow)]"
         >
+          {hasVision && (
           <button
             type="button"
             onClick={() => {
@@ -1151,6 +1159,7 @@ function MobileComposerActions({
             <Paperclip className="h-3.5 w-3.5 text-fg-muted" />
             Attach image
           </button>
+          )}
           <button
             type="button"
             onClick={() => {

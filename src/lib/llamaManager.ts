@@ -56,12 +56,22 @@ export type GpuStats = {
 
 // ── defaults ────────────────────────────────────────────────────────
 
-const DEFAULT_LLAMA_SERVER = path.join(
-  homedir(),
-  ".unsloth",
-  "llama.cpp",
-  "llama-server",
-);
+const DEFAULT_LLAMA_SERVER: string | null = null;
+
+async function resolveLlamaServerPath(): Promise<string> {
+  const candidate = path.join(
+    homedir(),
+    ".unsloth",
+    "llama.cpp",
+    "llama-server",
+  );
+  try {
+    return await fs.realpath(candidate);
+  } catch {
+    // fallback to the raw path and hope LD_LIBRARY_PATH covers it
+    return candidate;
+  }
+}
 
 const HF_CACHE = path.join(homedir(), ".cache", "huggingface", "hub");
 
@@ -69,12 +79,25 @@ async function getLlamaServerPath(): Promise<string> {
   try {
     const settings = await readSettings();
     if (settings.llamaServer?.path && settings.llamaServer.path.trim()) {
-      return settings.llamaServer.path.trim();
+      // Try to resolve custom path too, in case it's also a symlink
+      try {
+        return await fs.realpath(settings.llamaServer.path.trim());
+      } catch {
+        return settings.llamaServer.path.trim();
+      }
     }
   } catch {
     // ignore
   }
-  return process.env.LLAMA_SERVER_PATH ?? DEFAULT_LLAMA_SERVER;
+  const envPath = process.env.LLAMA_SERVER_PATH;
+  if (envPath) {
+    try {
+      return await fs.realpath(envPath);
+    } catch {
+      return envPath;
+    }
+  }
+  return await resolveLlamaServerPath();
 }
 
 // ── model scanner ───────────────────────────────────────────────────

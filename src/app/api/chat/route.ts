@@ -14,6 +14,7 @@ import {
 } from "@/lib/memory";
 import { deriveCtxModel } from "@/lib/ollama";
 import { normalizeOpenAiBaseUrl } from "@/lib/piAdapters";
+import { readSettings } from "@/lib/settings";
 import type { AssistantProvider } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -43,12 +44,18 @@ type ChatRequest = {
    *  find the files on disk. */
   assistantId: string;
   sessionId: string;
-  /** Backend the assistant chats through. "ollama" (default) or
-   *  "llama-cpp". When "llama-cpp", llamaUrl must be present. */
+  /** Backend the assistant chats through. "ollama" (default),
+   *  "llama-cpp", or "bedrock". */
   provider?: AssistantProvider;
   /** llama.cpp server base URL; accepted in either `http://host:port`
    *  or `http://host:port/v1` form. Ignored when provider is ollama. */
   llamaUrl?: string;
+  /** AWS region override for bedrock provider. Falls back to settings
+   *  then env vars then us-east-1. */
+  bedrockRegion?: string;
+  /** When true, skip memory injection and implicit tools. Used by the
+   *  client-side compaction summariser which only needs raw generation. */
+  bare?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -63,54 +70,49 @@ export async function POST(req: Request) {
     );
   }
 
-  const enabled = filterArtifactTools(
-    body.enabledTools ?? [],
-    !!body.artifactsEnabled,
-  );
+  const enabled = body.bare
+    ? []
+    : filterArtifactTools(body.enabledTools ?? [], !!body.artifactsEnabled);
   const clientMsgs = body.artifactsEnabled
     ? injectArtifactInstructions(body.messages)
     : body.messages;
 
   // ── Memory: always-on injection + per-turn auto-recall + save nudge ──
-  // buildAlwaysInjectedBlock — pinned facts + preferences (cap 50/50).
-  // getRecallContext — top-3 over threshold 0.7 against the user's latest
-  //   message (excludes already-pinned types).
-  // Nudge — every 4th user turn, opaque save-check the model can act on.
-  // retryPendingVectors — best-effort: re-embed up to 5 entries that
-  //   failed indexing previously. Fire-and-forget; doesn't block.
-  const memBlock = await buildAlwaysInjectedBlock();
-  // Recall query should be the user's actual prompt, not the
-  // artifact-augmented version that goes to the model. Read from
-  // body.messages (pre-injection) rather than clientMsgs.
-  const lastUser = [...body.messages]
-    .reverse()
-    .find((m) => m.role === "user");
-  const userMessageText =
-    typeof lastUser?.content === "string" ? lastUser.content : "";
-  const recallBlock = userMessageText
-    ? await getRecallContext(userMessageText)
-    : "";
-  const userTurnCount = clientMsgs.filter((m) => m.role === "user").length;
-  const NUDGE_EVERY = 4;
-  const nudge =
-    userTurnCount > 0 && userTurnCount % NUDGE_EVERY === 0
-      ? "[memory check: if anything durable about the user, their environment, or their lasting preferences has emerged in this conversation that wasn't already saved, call remember now. Otherwise reply normally.]"
+  // Skipped in bare mode (compaction summariser — no tools, no memory).
+  let systemWithMemory: string | undefined = body.system;
+  if (!body.bare) {
+    const memBlock = await buildAlwaysInjectedBlock();
+    const lastUser = [...body.messages]
+      .reverse()
+      .find((m) => m.role === "user");
+    const userMessageText =
+      typeof lastUser?.content === "string" ? lastUser.content : "";
+    const recallBlock = userMessageText
+      ? await getRecallContext(userMessageText)
       : "";
-  void retryPendingVectors(5).catch((err) => {
-    console.warn("[memory] retryPendingVectors failed:", err);
-  });
+    const userTurnCount = clientMsgs.filter((m) => m.role === "user").length;
+    const NUDGE_EVERY = 4;
+    const nudge =
+      userTurnCount > 0 && userTurnCount % NUDGE_EVERY === 0
+        ? "[memory check: if anything durable about the user, their environment, or their lasting preferences has emerged in this conversation that wasn't already saved, call remember now. Otherwise reply normally.]"
+        : "";
+    void retryPendingVectors(5).catch((err) => {
+      console.warn("[memory] retryPendingVectors failed:", err);
+    });
 
-  const parts: string[] = [];
-  if (memBlock) parts.push(memBlock);
-  if (recallBlock) parts.push(recallBlock);
-  if (body.system) parts.push(body.system);
-  if (nudge) parts.push(nudge);
-  const systemWithMemory = parts.length
-    ? parts.join("\n\n---\n\n").trim()
-    : body.system;
+    const parts: string[] = [];
+    if (memBlock) parts.push(memBlock);
+    if (recallBlock) parts.push(recallBlock);
+    if (body.system) parts.push(body.system);
+    if (nudge) parts.push(nudge);
+    systemWithMemory = parts.length
+      ? parts.join("\n\n---\n\n").trim()
+      : body.system;
+  }
 
   const provider: AssistantProvider = body.provider ?? "ollama";
   let llamaBaseUrl: string | undefined;
+  let bedrockRegion: string | undefined;
   if (provider === "llama-cpp") {
     if (!body.llamaUrl) {
       return new Response(
@@ -128,14 +130,19 @@ export async function POST(req: Request) {
       );
     }
     llamaBaseUrl = normalized;
+  } else if (provider === "bedrock") {
+    const settings = await readSettings();
+    bedrockRegion = body.bedrockRegion || settings.bedrock.region || undefined;
   }
 
   // pi-mono is the default backend. Set SAHAYAK_LLM_BACKEND=native
   // only as an escape hatch to fall back to the original Ollama loop.
-  // llama.cpp assistants force the pi path — the native loop speaks
-  // Ollama's non-standard /api/chat, which llama.cpp doesn't serve.
+  // llama.cpp and bedrock assistants force the pi path — the native
+  // loop speaks Ollama's non-standard /api/chat only.
   const usePi =
-    provider === "llama-cpp" || process.env.SAHAYAK_LLM_BACKEND !== "native";
+    provider === "llama-cpp" ||
+    provider === "bedrock" ||
+    process.env.SAHAYAK_LLM_BACKEND !== "native";
 
   // Resolve the effective model name. contextLength only maps to a
   // derived Ollama model (via /api/create) — llama.cpp sets context
@@ -179,6 +186,8 @@ export async function POST(req: Request) {
             sessionId: scope.sessionId,
             provider,
             llamaBaseUrl,
+            bedrockRegion,
+            bare: body.bare,
           },
           controller,
         );

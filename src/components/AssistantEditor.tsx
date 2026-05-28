@@ -42,22 +42,24 @@ export function AssistantEditor({
 
   // Provider-dependent model refetch. When provider is "llama-cpp"
   // and llamaUrl is a parseable URL, query that server's /v1/models.
-  // Otherwise fall back to Ollama's catalog. Debounced implicitly by
-  // React re-running the effect when either dependency changes.
+  // "bedrock" queries the config-defined model list. Otherwise fall
+  // back to Ollama's catalog.
   useEffect(() => {
-    const isLlama = form.provider === "llama-cpp";
+    const provider = form.provider ?? "ollama";
     const llamaUrl = (form.llamaUrl ?? "").trim();
-    const url =
-      isLlama && llamaUrl
-        ? `/api/models?url=${encodeURIComponent(llamaUrl)}`
-        : "/api/models";
+    let url: string;
+    if (provider === "bedrock") {
+      url = "/api/models?provider=bedrock";
+    } else if (provider === "llama-cpp" && llamaUrl) {
+      url = `/api/models?url=${encodeURIComponent(llamaUrl)}`;
+    } else {
+      url = "/api/models";
+    }
     fetch(url)
       .then((r) => r.json())
       .then((d: { models?: ModelInfo[] }) => {
         const list = d.models ?? [];
         setModels(list);
-        // Don't blow away an existing selection; only autofill when
-        // empty or the current pick isn't in the new catalogue.
         setForm((f) => {
           const names = new Set(list.map((m) => m.name));
           if (!f.model || !names.has(f.model)) {
@@ -236,16 +238,12 @@ export function AssistantEditor({
 
         <Section title="Model & reasoning">
           <ProviderField
-            provider={form.provider ?? "ollama"}
+            provider={(form.provider ?? "ollama") as "ollama" | "llama-cpp" | "bedrock"}
             llamaUrl={form.llamaUrl ?? ""}
             onProviderChange={(p) =>
               setForm({
                 ...form,
                 provider: p,
-                // Switching providers invalidates the current model
-                // pick — the model-fetch effect will refill it from
-                // the new catalog. Clearing here avoids flashing an
-                // Ollama name in the llama.cpp dropdown.
                 model: "",
               })
             }
@@ -256,7 +254,9 @@ export function AssistantEditor({
               label={
                 (form.provider ?? "ollama") === "llama-cpp"
                   ? "Model (from llama.cpp)"
-                  : "Model"
+                  : (form.provider ?? "ollama") === "bedrock"
+                    ? "Model (from Bedrock config)"
+                    : "Model"
               }
             >
               <select
@@ -268,7 +268,9 @@ export function AssistantEditor({
                   <option value="" disabled>
                     {(form.provider ?? "ollama") === "llama-cpp"
                       ? "set the URL above to list models"
-                      : "no models found (is Ollama running?)"}
+                      : (form.provider ?? "ollama") === "bedrock"
+                        ? "no models configured (add to settings.json)"
+                        : "no models found (is Ollama running?)"}
                   </option>
                 )}
                 {models.map((m) => (
@@ -307,6 +309,11 @@ export function AssistantEditor({
                 <span className="font-mono text-fg">llama-server</span> to
                 change it.
               </div>
+            ) : (form.provider ?? "ollama") === "bedrock" ? (
+              <div className="rounded-md border border-border bg-bg-paper px-3 py-2 font-sans text-[11.5px] text-fg-muted">
+                <span className="byline mr-2">context length</span>
+                managed by AWS Bedrock per model (typically 200k tokens).
+              </div>
             ) : (
               <ContextLengthField
                 value={form.contextLength}
@@ -322,6 +329,22 @@ export function AssistantEditor({
                 }
               />
             )}
+          </div>
+          <div className="mt-4">
+            <label className="flex items-center gap-2 font-sans text-[12.5px] text-fg-muted cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.supportsVision ?? false}
+                onChange={(e) =>
+                  setForm({ ...form, supportsVision: e.target.checked || undefined })
+                }
+                className="rounded border-border accent-accent"
+              />
+              <span>Supports vision</span>
+              <span className="text-[11px] text-fg-subtle">
+                (image uploads &amp; artifact screenshots)
+              </span>
+            </label>
           </div>
         </Section>
 
@@ -419,8 +442,8 @@ export function AssistantEditor({
 /**
  * Pick the backend this assistant talks to. Ollama (default) uses the
  * local Ollama server's OpenAI-compat `/v1`. llama.cpp points at any
- * llama-server on a user-chosen URL — same wire protocol, just a
- * different host. Model list refetches when either value changes.
+ * llama-server on a user-chosen URL. Bedrock uses AWS ConverseStream
+ * with models defined in settings.json.
  */
 function ProviderField({
   provider,
@@ -428,9 +451,9 @@ function ProviderField({
   onProviderChange,
   onUrlChange,
 }: {
-  provider: "ollama" | "llama-cpp";
+  provider: "ollama" | "llama-cpp" | "bedrock";
   llamaUrl: string;
-  onProviderChange: (p: "ollama" | "llama-cpp") => void;
+  onProviderChange: (p: "ollama" | "llama-cpp" | "bedrock") => void;
   onUrlChange: (url: string) => void;
 }) {
   return (
@@ -439,7 +462,7 @@ function ProviderField({
         provider
       </div>
       <div className="flex flex-wrap items-center gap-2 text-[12px]">
-        {(["ollama", "llama-cpp"] as const).map((p) => (
+        {(["ollama", "llama-cpp", "bedrock"] as const).map((p) => (
           <button
             key={p}
             type="button"
@@ -468,7 +491,9 @@ function ProviderField({
       <p className="mt-1.5 font-sans text-[10.5px] text-fg-subtle">
         {provider === "ollama"
           ? "Local Ollama server at http://localhost:11434. Models from ollama list."
-          : "Any llama-server-compatible endpoint (llama.cpp, vLLM, etc.). Bare host or /v1 both accepted."}
+          : provider === "llama-cpp"
+            ? "Any llama-server-compatible endpoint (llama.cpp, vLLM, etc.). Bare host or /v1 both accepted."
+            : "AWS Bedrock ConverseStream. Models configured in settings.json; auth via instance role / env vars."}
       </p>
     </div>
   );

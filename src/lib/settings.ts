@@ -17,6 +17,12 @@ export type LlamaDefaults = {
   noContextShift: boolean;
 };
 
+export type BedrockModelEntry = {
+  id: string;
+  name: string;
+  contextLength?: number;
+};
+
 export type Settings = {
   tts: {
     backend: TtsBackend;
@@ -36,6 +42,10 @@ export type Settings = {
      *  at ~/.unsloth/llama.cpp/llama-server */
     path: string;
     defaults: LlamaDefaults;
+  };
+  bedrock: {
+    region: string;
+    models: BedrockModelEntry[];
   };
   prompts: SavedPrompt[];
 };
@@ -73,6 +83,10 @@ const DEFAULTS: Settings = {
       jinja: true,
       noContextShift: true,
     },
+  },
+  bedrock: {
+    region: "",
+    models: [],
   },
   prompts: [],
 };
@@ -146,6 +160,21 @@ export async function readSettings(): Promise<Settings> {
               : DEFAULTS.llamaServer.defaults.noContextShift,
         },
       },
+      bedrock: {
+        region:
+          typeof parsed.bedrock?.region === "string"
+            ? parsed.bedrock.region.trim()
+            : DEFAULTS.bedrock.region,
+        models: Array.isArray(parsed.bedrock?.models)
+          ? parsed.bedrock.models.filter(
+              (m): m is BedrockModelEntry =>
+                typeof m === "object" &&
+                m !== null &&
+                typeof (m as BedrockModelEntry).id === "string" &&
+                typeof (m as BedrockModelEntry).name === "string",
+            )
+          : DEFAULTS.bedrock.models,
+      },
       prompts: Array.isArray(parsed.prompts) ? parsed.prompts : DEFAULTS.prompts,
     };
   } catch {
@@ -167,6 +196,10 @@ export type SettingsPatch = {
   llamaServer?: {
     path?: string;
     defaults?: Partial<LlamaDefaults>;
+  };
+  bedrock?: {
+    region?: string;
+    models?: BedrockModelEntry[];
   };
   prompts?: SavedPrompt[];
 };
@@ -209,6 +242,13 @@ export async function writeSettings(patch: SettingsPatch): Promise<Settings> {
         noContextShift:
           patch.llamaServer?.defaults?.noContextShift ?? cur.llamaServer.defaults.noContextShift,
       },
+    },
+    bedrock: {
+      region:
+        typeof patch.bedrock?.region === "string"
+          ? patch.bedrock.region.trim()
+          : cur.bedrock.region,
+      models: patch.bedrock?.models ?? cur.bedrock.models,
     },
     prompts: patch.prompts ?? cur.prompts,
   };

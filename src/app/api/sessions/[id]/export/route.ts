@@ -29,7 +29,7 @@ function messageToMd(m: ChatMessage, assistantName: string): string {
         if (a.type === "image") {
           out.push(
             `![image (${a.mimeType})](data:${a.mimeType};base64,<omitted ${Math.round(
-              a.data.length * 0.75,
+              (a.data?.length ?? 0) * 0.75,
             )} bytes>)`,
           );
         }

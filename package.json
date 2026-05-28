@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 9999",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start -p 9999",
     "lint": "eslint",
     "setup:python": "node scripts/setup-python.mjs"
@@ -20,7 +20,7 @@
     "lucide-react": "^1.8.0",
     "mermaid": "^11.14.0",
     "nanoid": "^5.1.9",
-    "next": "16.2.4",
+    "next": "^16.2.6",
     "next-themes": "^0.4.6",
     "officeparser": "^6.1.0",
     "react": "19.2.4",

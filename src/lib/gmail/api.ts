@@ -146,11 +146,14 @@ function b64urlEncode(input: string): string {
 export function buildMimeMessage(params: {
   from?: string;
   to: string;
+  cc?: string;
+  bcc?: string;
   replyTo?: string;
   subject: string;
   inReplyTo?: string;
   references?: string;
   body: string;
+  htmlBody?: string;
 }): string {
   const sh = (v: string) => v.replace(/[\r\n]+/g, " ").trim();
 
@@ -158,6 +161,8 @@ export function buildMimeMessage(params: {
 
   if (params.from) headers.push(`From: ${sh(params.from)}`);
   headers.push(`To: ${sh(params.to)}`);
+  if (params.cc) headers.push(`Cc: ${sh(params.cc)}`);
+  if (params.bcc) headers.push(`Bcc: ${sh(params.bcc)}`);
   if (params.replyTo) headers.push(`Reply-To: ${sh(params.replyTo)}`);
   headers.push(`Subject: ${sh(params.subject)}`);
   if (params.inReplyTo) headers.push(`In-Reply-To: ${sh(params.inReplyTo)}`);
@@ -177,12 +182,14 @@ export function buildMimeMessage(params: {
     quotedPrintableEncode(params.body) +
     "\r\n";
 
-  // Part 2: text/html
+  // Part 2: text/html — use caller-supplied HTML if provided, otherwise
+  // convert the plain text body to a minimal <div> wrapper.
+  const htmlSource = params.htmlBody ?? textToHtml(params.body);
   const htmlPart =
     `--${boundary}\r\n` +
     `Content-Type: text/html; charset=UTF-8\r\n` +
     `Content-Transfer-Encoding: quoted-printable\r\n\r\n` +
-    quotedPrintableEncode(textToHtml(params.body)) +
+    quotedPrintableEncode(htmlSource) +
     "\r\n";
 
   // Closing boundary

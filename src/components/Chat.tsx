@@ -380,18 +380,19 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
   // Models list is provider-dependent: Ollama assistants get the
   // local Ollama catalog; llama.cpp assistants get their server's
-  // /v1/models + /props. Without this split, the ContextPie couldn't
-  // resolve ctxMax for llama.cpp assistants (the loaded model wasn't
-  // in the Ollama list), so auto-compact + pie rendering silently
-  // broke.
+  // /v1/models + /props; bedrock gets config-defined models.
   useEffect(() => {
     if (!assistant) return;
-    const isLlama = assistant.provider === "llama-cpp";
+    const provider = assistant.provider ?? "ollama";
     const llamaUrl = (assistant.llamaUrl ?? "").trim();
-    const url =
-      isLlama && llamaUrl
-        ? `/api/models?url=${encodeURIComponent(llamaUrl)}`
-        : "/api/models";
+    let url: string;
+    if (provider === "bedrock") {
+      url = "/api/models?provider=bedrock";
+    } else if (provider === "llama-cpp" && llamaUrl) {
+      url = `/api/models?url=${encodeURIComponent(llamaUrl)}`;
+    } else {
+      url = "/api/models";
+    }
     fetch(url)
       .then((r) => r.json())
       .then((d: { models: ModelInfo[] }) => setModels(d.models ?? []))
@@ -603,6 +604,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
   }, []);
 
   const ctxMax = currentModel?.contextLength ?? null;
+  const hasVision =
+    assistant?.supportsVision ??
+    (currentModel?.capabilities?.includes("vision") || false);
   // ctxMax used in auto-compact threshold + passed to ContextPie.
   // The pie component owns its own percent + colour-severity math.
 
@@ -1382,10 +1386,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             `Compress the chat history into a rich, faithful summary. Target length: around ${targetWords} words (±30%). Preserve: names, IDs, file paths, commit hashes, URLs, exact error messages, and specific numbers verbatim. Organise by topic with short ## sub-headings. Under each, use terse bullets capturing: what happened, decisions made, open questions, unresolved errors, facts about the user or project. Don't compress so tightly that specifics are lost — the summary is replacing the actual transcript and will be the agent's only memory of pre-compact turns. If the input contains a '[system-note] … elided …' marker, acknowledge the gap in a bullet.`,
           messages: [{ role: "user", content: summaryText }],
           think: false,
-          // Even the summariser needs scope so server-side validation
-          // doesn't reject it. compact() only runs on an established
-          // session (ctx hit 70%, ≥6 messages), so sessionId is
-          // guaranteed non-null here.
+          bare: true,
           assistantId: assistant.id,
           sessionId: sessionId as string,
           provider: assistant.provider ?? "ollama",
@@ -1995,7 +1996,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                 lastArtifactsEnabledRef.current = true;
                 handleSend(prompt, [], true);
               }}
-              onAttachScreenshot={(a) => setPendingComposerAttachment(a)}
+              onAttachScreenshot={hasVision ? (a) => setPendingComposerAttachment(a) : undefined}
             />
           ) : showTools && (
             <>
@@ -2096,6 +2097,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
           }
           obsidianEnabled={obsidianEnabled}
           onObsidianToggle={() => setObsidianEnabled((v) => !v)}
+          hasVision={hasVision}
         />
       </div>
     </div>

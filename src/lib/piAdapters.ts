@@ -68,6 +68,32 @@ export function piModelForOllama(modelId: string): Model<"openai-completions"> {
   return piModelForOpenAICompat(`${OLLAMA_URL}/v1`, modelId, "ollama");
 }
 
+/** Build a pi-ai Model for AWS Bedrock's ConverseStream API.
+ *  Auth is handled by the AWS SDK credential chain (env vars,
+ *  instance role, ~/.aws/credentials). */
+export function piModelForBedrock(
+  modelId: string,
+  region?: string,
+): Model<"bedrock-converse-stream"> {
+  const resolvedRegion =
+    region ||
+    process.env.AWS_REGION ||
+    process.env.AWS_DEFAULT_REGION ||
+    "us-east-1";
+  return {
+    id: modelId,
+    name: modelId,
+    api: "bedrock-converse-stream",
+    provider: "amazon-bedrock" as unknown as Model<"bedrock-converse-stream">["provider"],
+    baseUrl: `https://bedrock-runtime.${resolvedRegion}.amazonaws.com`,
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 32_000,
+  };
+}
+
 /** Normalise a user-supplied llama.cpp URL into a usable pi-ai
  *  `baseUrl`. Accepts bare `http://host:port`, `http://host:port/`,
  *  or `http://host:port/v1`. Returns the `/v1` form with no trailing

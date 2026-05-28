@@ -53,7 +53,7 @@ export function ArtifactPanel({
    *  (/artifact-runtime.html). On failure, surfaces a one-line inline
    *  alert in the panel header for 4s instead of a silent console.error. */
   async function snapScreenshot() {
-    if (!onAttachScreenshot || capturing) return;
+    if (!onAttachScreenshot || capturing || !scope) return;
     setCaptureError(null);
     const iframe = iframeRef.current;
     const doc = iframe?.contentDocument;
@@ -94,6 +94,8 @@ export function ArtifactPanel({
       );
       const fd = new FormData();
       fd.append("file", file);
+      fd.append("assistantId", scope.assistantId);
+      fd.append("sessionId", scope.sessionId);
       const r = await fetch("/api/uploads", { method: "POST", body: fd });
       if (!r.ok) throw new Error(`upload ${r.status}`);
       const j = (await r.json()) as {

@@ -16,6 +16,7 @@ import {
 } from "@/lib/jobRegistry";
 import { appendMessage, updateSessionMeta } from "@/lib/store";
 import {
+  piModelForBedrock,
   piModelForOllama,
   piModelForOpenAICompat,
   piThinkLevel,
@@ -38,8 +39,9 @@ export type JobRunnerInput = {
   maxToolTurns: number;
   assistantId: string;
   sessionId: string;
-  provider: "ollama" | "llama-cpp";
+  provider: "ollama" | "llama-cpp" | "bedrock";
   llamaBaseUrl?: string;
+  bedrockRegion?: string;
 };
 
 export function spawnJobRunner(input: JobRunnerInput): void {
@@ -69,10 +71,13 @@ async function runJob(input: JobRunnerInput): Promise<void> {
 
   const scope = { assistantId, sessionId };
 
+  const { bedrockRegion } = input;
   const piModel =
-    provider === "llama-cpp" && llamaBaseUrl
-      ? piModelForOpenAICompat(llamaBaseUrl, model, "llama-cpp")
-      : piModelForOllama(model);
+    provider === "bedrock"
+      ? piModelForBedrock(model, bedrockRegion)
+      : provider === "llama-cpp" && llamaBaseUrl
+        ? piModelForOpenAICompat(llamaBaseUrl, model, "llama-cpp")
+        : piModelForOllama(model);
 
   const tools = await piToolsFromEnabled(enabledTools, scope);
   const messages = await toPiMessages(clientMessages, scope);
@@ -89,7 +94,7 @@ async function runJob(input: JobRunnerInput): Promise<void> {
       messages,
     },
     toolExecution: "parallel",
-    getApiKey: () => "ollama",
+    getApiKey: () => provider === "bedrock" ? "bedrock" : "ollama",
     beforeToolCall: async (
       ctx: BeforeToolCallContext,
     ): Promise<BeforeToolCallResult | undefined> => {

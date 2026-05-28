@@ -12,6 +12,7 @@ import {
 } from "@/lib/memory";
 import { deriveCtxModel } from "@/lib/ollama";
 import { normalizeOpenAiBaseUrl } from "@/lib/piAdapters";
+import { readSettings } from "@/lib/settings";
 import { createJob, listActiveJobs } from "@/lib/jobRegistry";
 import { spawnJobRunner } from "@/lib/jobRunner";
 import type { AssistantProvider } from "@/lib/types";
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
 
   const provider: AssistantProvider = body.provider ?? "ollama";
   let llamaBaseUrl: string | undefined;
+  let bedrockRegion: string | undefined;
   if (provider === "llama-cpp") {
     if (!body.llamaUrl) {
       return NextResponse.json(
@@ -97,6 +99,9 @@ export async function POST(req: Request) {
       );
     }
     llamaBaseUrl = normalized;
+  } else if (provider === "bedrock") {
+    const settings = await readSettings();
+    bedrockRegion = settings.bedrock.region || undefined;
   }
 
   let effectiveModel = body.model;
@@ -129,6 +134,7 @@ export async function POST(req: Request) {
     sessionId: body.sessionId,
     provider,
     llamaBaseUrl,
+    bedrockRegion,
   });
 
   return NextResponse.json({ jobId: job.id }, { status: 201 });

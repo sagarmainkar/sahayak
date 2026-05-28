@@ -220,11 +220,11 @@ function StructuredResult({
   if (name === "web_fetch") {
     return (
       <div className="space-y-1.5">
-        {result.title && (
+        {result.title ? (
           <div className="font-display text-[14px] italic text-fg">
             {String(result.title)}
           </div>
-        )}
+        ) : null}
         <div className="font-serif text-[12px] text-fg-muted">
           {String(result.content ?? "").slice(0, 400)}
           {String(result.content ?? "").length > 400 && "…"}

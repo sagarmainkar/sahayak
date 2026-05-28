@@ -211,6 +211,12 @@ export const gmailReply: ToolSpec = {
         type: "boolean",
         description: "If true, include original Cc recipients (default false).",
       },
+      html_body: {
+        type: "string",
+        description:
+          "Optional HTML body. Supports <div>, <table>, <span>, inline CSS, etc. " +
+          "The plain-text `body` is still required as a fallback for non-HTML clients.",
+      },
     },
     required: ["message_id", "body"],
   },
@@ -274,6 +280,7 @@ export const gmailReply: ToolSpec = {
         inReplyTo: origMessageId,
         references: [origReferences, origMessageId].filter(Boolean).join(" "),
         body,
+        htmlBody: args.html_body ? String(args.html_body) : undefined,
       });
 
       // Send.
@@ -286,6 +293,81 @@ export const gmailReply: ToolSpec = {
         subject,
         body_length: body.length,
         inReplyTo: origMessageId,
+      };
+    });
+  },
+};
+
+// ── Compose ───────────────────────────────────────────────────────
+
+export const gmailCompose: ToolSpec = {
+  name: "gmail_compose",
+  group: "gmail",
+  description:
+    "Compose and send a new email. Supports multiple To recipients, Cc, and Bcc. " +
+    "Requires gmail.send or gmail.compose scope.",
+  parameters: {
+    type: "object",
+    properties: {
+      to: {
+        type: "string",
+        description:
+          "Primary recipient(s). Comma-separated for multiple, e.g. " +
+          "\"Alice <alice@example.com>, bob@example.com\".",
+      },
+      subject: {
+        type: "string",
+        description: "Email subject line.",
+      },
+      body: {
+        type: "string",
+        description: "Email body. Plain text with \\n for line breaks.",
+      },
+      cc: {
+        type: "string",
+        description: "Cc recipient(s), comma-separated (optional).",
+      },
+      bcc: {
+        type: "string",
+        description: "Bcc recipient(s), comma-separated (optional).",
+      },
+      html_body: {
+        type: "string",
+        description:
+          "Optional HTML body. Supports <div>, <table>, <span>, inline CSS, etc. " +
+          "Gmail renders this as a rich HTML email. The plain-text `body` is still " +
+          "required as a fallback for non-HTML clients.",
+      },
+    },
+    required: ["to", "subject", "body"],
+  },
+  async handler(args) {
+    const to = String(args.to ?? "").trim();
+    const subject = String(args.subject ?? "").trim();
+    const body = String(args.body ?? "");
+    if (!to) return err("bad_args", "to is required");
+    if (!subject) return err("bad_args", "subject is required");
+    if (!body.trim()) return err("bad_args", "body must not be empty");
+
+    return runSafe(async () => {
+      const raw = buildMimeMessage({
+        to,
+        cc: args.cc ? String(args.cc) : undefined,
+        bcc: args.bcc ? String(args.bcc) : undefined,
+        subject,
+        body,
+        htmlBody: args.html_body ? String(args.html_body) : undefined,
+      });
+      const sent = await sendMessage(raw);
+      return {
+        sent: true,
+        message_id: sent.id,
+        threadId: sent.threadId,
+        to,
+        cc: args.cc ? String(args.cc) : undefined,
+        bcc: args.bcc ? String(args.bcc) : undefined,
+        subject,
+        body_length: body.length,
       };
     });
   },

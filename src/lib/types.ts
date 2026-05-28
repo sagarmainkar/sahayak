@@ -8,7 +8,7 @@ export type ModelInfo = {
   contextLength: number | null;
 };
 
-export type AssistantProvider = "ollama" | "llama-cpp";
+export type AssistantProvider = "ollama" | "llama-cpp" | "bedrock";
 
 export type Assistant = {
   id: string;
@@ -30,6 +30,10 @@ export type Assistant = {
    *  assistants. Either `http://host:port` or `http://host:port/v1`.
    *  Ignored when provider is ollama. */
   llamaUrl?: string;
+  /** Explicit vision override. For Ollama assistants this can be left
+   *  undefined and will be auto-detected from model capabilities. For
+   *  llama.cpp (where detection is unreliable), set explicitly. */
+  supportsVision?: boolean;
   createdAt: number;
   updatedAt: number;
 };

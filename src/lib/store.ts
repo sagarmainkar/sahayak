@@ -215,6 +215,7 @@ export async function createAssistant(
     contextLength: input.contextLength,
     provider: input.provider ?? "ollama",
     llamaUrl: input.llamaUrl,
+    supportsVision: input.supportsVision,
     createdAt: now,
     updatedAt: now,
   };

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isDerivedByUs, listModels, showModel } from "@/lib/ollama";
 import { normalizeOpenAiBaseUrl } from "@/lib/piAdapters";
+import { readSettings } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,20 @@ function parseNumCtx(parameters: string | undefined): number | null {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const provider = url.searchParams.get("provider");
+  if (provider === "bedrock") {
+    const settings = await readSettings();
+    const models = settings.bedrock.models.map((m) => ({
+      name: m.id,
+      size: 0,
+      family: "bedrock",
+      quant: "",
+      params: m.name,
+      capabilities: ["tools"],
+      contextLength: m.contextLength ?? 200_000,
+    }));
+    return NextResponse.json({ models });
+  }
   const llamaUrl = url.searchParams.get("url");
   if (llamaUrl) {
     try {

@@ -8,6 +8,7 @@ import type {
 } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage, ToolCall } from "@mariozechner/pi-ai";
 import {
+  piModelForBedrock,
   piModelForOllama,
   piModelForOpenAICompat,
   piThinkLevel,
@@ -40,11 +41,14 @@ export type PiRunInput = {
   assistantId: string;
   sessionId: string;
   /** Backend selector. "ollama" uses OLLAMA_URL; "llama-cpp" uses
-   *  `llamaBaseUrl` (already normalised to end in /v1). Protocol is
-   *  identical (OpenAI /v1/chat/completions) — only the base URL
-   *  differs. */
-  provider: "ollama" | "llama-cpp";
+   *  `llamaBaseUrl` (already normalised to end in /v1); "bedrock" uses
+   *  AWS ConverseStream via instance/env credentials. */
+  provider: "ollama" | "llama-cpp" | "bedrock";
   llamaBaseUrl?: string;
+  bedrockRegion?: string;
+  /** When true, skip implicit tools entirely. Used for compaction
+   *  summariser which only needs raw text generation. */
+  bare?: boolean;
 };
 
 type PauseEntry = {
@@ -260,14 +264,18 @@ export async function startPiRun(
 ): Promise<void> {
   sweep();
   const model =
-    input.provider === "llama-cpp" && input.llamaBaseUrl
-      ? piModelForOpenAICompat(input.llamaBaseUrl, input.model, "llama-cpp")
-      : piModelForOllama(input.model);
+    input.provider === "bedrock"
+      ? piModelForBedrock(input.model, input.bedrockRegion)
+      : input.provider === "llama-cpp" && input.llamaBaseUrl
+        ? piModelForOpenAICompat(input.llamaBaseUrl, input.model, "llama-cpp")
+        : piModelForOllama(input.model);
   const scope = {
     assistantId: input.assistantId,
     sessionId: input.sessionId,
   };
-  const tools = await piToolsFromEnabled(input.enabledTools, scope);
+  const tools = input.bare
+    ? []
+    : await piToolsFromEnabled(input.enabledTools, scope);
   const messages = await toPiMessages(input.clientMessages, scope);
   // Mutable in place so resume's splice(0, ..., list) is visible to
   // beforeToolCall's isGated() check on the next pause.
@@ -299,7 +307,7 @@ export async function startPiRun(
       messages,
     },
     toolExecution: "parallel",
-    getApiKey: () => "ollama",
+    getApiKey: () => input.provider === "bedrock" ? "bedrock" : "ollama",
     beforeToolCall: async (
       ctxBefore: BeforeToolCallContext,
     ): Promise<BeforeToolCallResult | undefined> => {
