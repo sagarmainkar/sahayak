@@ -68,6 +68,58 @@ function summaryFor(name: string, r: Parsed): string {
   return "";
 }
 
+function WorkerSteps({
+  log,
+}: {
+  log: Array<{ type: string; name?: string; summary: string }>;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 font-sans text-[11px] text-accent hover:underline"
+      >
+        <ChevronDown
+          className={cn(
+            "h-3 w-3 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+        Worker steps ({log.length})
+      </button>
+      {open && (
+        <div className="mt-1 space-y-0.5">
+          {log.map((entry, i) => (
+            <div
+              key={i}
+              className="flex items-start gap-2 rounded-sm px-2 py-0.5 font-mono text-[10.5px]"
+            >
+              <span className="mt-0.5 flex-shrink-0 text-fg-subtle">
+                {entry.type === "tool_call"
+                  ? "🔧"
+                  : entry.type === "tool_result"
+                    ? "✓"
+                    : entry.type === "content"
+                      ? "💬"
+                      : "·"}
+              </span>
+              <span className="text-fg-muted">
+                {entry.type === "tool_call" && entry.name ? (
+                  <>
+                    <span className="font-semibold text-fg">{entry.name}</span>{" "}
+                  </>
+                ) : null}
+                {entry.summary}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StructuredResult({
   name,
   result,
@@ -229,6 +281,23 @@ function StructuredResult({
           {String(result.content ?? "").slice(0, 400)}
           {String(result.content ?? "").length > 400 && "…"}
         </div>
+      </div>
+    );
+  }
+
+  if (name === "delegate_to_worker") {
+    const output = typeof result.output === "string" ? result.output : "";
+    const workerLog = Array.isArray(result.workerLog)
+      ? (result.workerLog as Array<{ type: string; name?: string; summary: string }>)
+      : [];
+    return (
+      <div className="space-y-2">
+        {output && (
+          <div className="rounded-sm border border-accent/30 bg-accent/5 px-2 py-1.5 font-serif text-[12.5px] leading-relaxed text-fg">
+            {output}
+          </div>
+        )}
+        {workerLog.length > 0 && <WorkerSteps log={workerLog} />}
       </div>
     );
   }

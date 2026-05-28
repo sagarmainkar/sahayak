@@ -921,14 +921,17 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
             try { obj = JSON.parse(dataLine); } catch { continue; }
             const t = obj.type as string;
 
-            if (t === "content") {
-              ensureNonToolPhase("writing");
+            if (t === "content" || t === "thinking") {
+              // Worker deltas are captured in the tool result's workerLog;
+              // skip them during live streaming to avoid corrupting the
+              // timeline phase (we're in a tool-execution phase).
+              if (obj.source === "worker") continue;
+
+              ensureNonToolPhase(t === "content" ? "writing" : "thinking");
               const cur = assembled[curIndex];
-              patchCur({ content: cur.content + String(obj.delta ?? "") });
-            } else if (t === "thinking") {
-              ensureNonToolPhase("thinking");
-              const cur = assembled[curIndex];
-              patchCur({ thinking: (cur.thinking ?? "") + String(obj.delta ?? "") });
+              patchCur(t === "content"
+                ? { content: cur.content + String(obj.delta ?? "") }
+                : { thinking: (cur.thinking ?? "") + String(obj.delta ?? "") });
             } else if (t === "done_turn") {
               const incoming = {
                 prompt: Number(obj.promptTokens ?? 0),
@@ -961,6 +964,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
                   : {}),
               });
             } else if (t === "tool_call") {
+              // Worker tool calls are captured in the delegate_to_worker
+              // tool result's workerLog; skip them during live streaming
+              // to keep the timeline clean.
+              if (obj.source === "worker") continue;
+
               const callId = String(obj.id ?? uid());
               const toolName = String(obj.name ?? "");
               openToolPhase(toolName, callId);
@@ -977,6 +985,9 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
               });
               scheduleFlush();
             } else if (t === "tool_result") {
+              // Skip worker tool results — they're in the workerLog.
+              if (obj.source === "worker") continue;
+
               const callId = obj.id ? String(obj.id) : null;
               if (callId) closeToolPhase(callId, Boolean(obj.ok));
               for (let i = assembled.length - 1; i >= 0; i--) {
