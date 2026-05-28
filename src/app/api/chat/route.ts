@@ -59,6 +59,15 @@ type ChatRequest = {
   /** Override the model's output token limit. Compaction uses this
    *  to match the summary budget exactly so the model knows its ceiling. */
   maxTokens?: number;
+  /** Worker model config. When set, the assistant gains a
+   *  `delegate_to_worker` tool. Mirrors Assistant.worker. */
+  worker?: {
+    model: string;
+    provider?: AssistantProvider;
+    llamaUrl?: string;
+    bedrockRegion?: string;
+    systemPrompt?: string;
+  };
 };
 
 export async function POST(req: Request) {
@@ -192,6 +201,7 @@ export async function POST(req: Request) {
             bedrockRegion,
             bare: body.bare,
             maxTokens: body.maxTokens,
+            workerConfig: body.worker,
           },
           controller,
         );

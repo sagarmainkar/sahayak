@@ -35,6 +35,14 @@ type JobRequest = {
   sessionId: string;
   provider?: AssistantProvider;
   llamaUrl?: string;
+  /** Worker model config. Mirrors Assistant.worker. */
+  worker?: {
+    model: string;
+    provider?: AssistantProvider;
+    llamaUrl?: string;
+    bedrockRegion?: string;
+    systemPrompt?: string;
+  };
 };
 
 export async function POST(req: Request) {
@@ -135,6 +143,7 @@ export async function POST(req: Request) {
     provider,
     llamaBaseUrl,
     bedrockRegion,
+    workerConfig: body.worker,
   });
 
   return NextResponse.json({ jobId: job.id }, { status: 201 });
