@@ -50,6 +50,10 @@ export type WorkerContext = {
     req: WorkerApprovalRequest,
     workerAgent: { abort: () => void },
   ) => Promise<Decision>;
+  /** Background job id — set when running via jobRunner; undefined for
+   *  direct /api/chat. Used by requestApproval to delegate to the
+   *  job's pendingApproval mechanism. */
+  jobId?: string;
 };
 
 const registry = new Map<string, WorkerContext>();
@@ -79,3 +83,35 @@ export const DEFAULT_WORKER_SYSTEM_PROMPT = `You are a worker agent assisting a 
 - Use markdown. Code in triple-backtick fences with language tags.
 - If you encounter errors, explain what went wrong and what you tried.
 - You are stateless — all context you need is in this prompt.`;
+
+/** System prompt augmentation injected into the manager's system prompt
+ *  when a worker is configured. */
+export function workerSystemPromptAugmentation(modelName: string): string {
+  return `
+
+## Worker delegation
+
+You have a worker model (\`${modelName}\`) available via \`delegate_to_worker\`. Use it to offload self-contained heavy work while you focus on orchestration.
+
+The worker has the same tools as you (read_file, bash, web_search, etc.). Its tool calls and output are visible in the chat — monitor its progress.
+
+**Delegate when:**
+- Large code generation or refactoring
+- Analysis of multiple files or large datasets
+- Multi-step research tasks
+- Any task that is self-contained (doesn't need your conversation history)
+
+**Don't delegate:**
+- Simple one-step tasks — just do them yourself
+- Tasks requiring conversation context the worker doesn't have
+- User-facing responses — you write those
+
+**How to delegate:**
+- Call \`delegate_to_worker\` with a clear, specific prompt
+- Include file paths the worker should read (optional)
+- Review the worker's output before using it
+- If unsatisfied, re-delegate with refinements or handle it yourself
+- If the worker returns an error with partial output, you may use the partial output and complete the task yourself
+
+You are responsible for the final answer. The worker is a helper, not a replacement.`;
+}

@@ -22,6 +22,7 @@ import {
   setWorkerContext,
   clearWorkerContext,
   getWorkerContext,
+  workerSystemPromptAugmentation,
   type WorkerApprovalRequest,
 } from "@/lib/workerRegistry";
 import { delegateToWorkerSpec } from "@/lib/tools/delegateToWorker";
@@ -314,33 +315,9 @@ export async function startPiRun(
     const workerTool = piToolFromSpec(delegateToWorkerSpec, scope);
     tools.push(workerTool);
 
-    const workerInstr = `
-
-## Worker delegation
-
-You have a worker model (\`${input.workerConfig.model}\`) available via \`delegate_to_worker\`. Use it to offload self-contained heavy work while you focus on orchestration.
-
-The worker has the same tools as you (read_file, bash, web_search, etc.). Its tool calls and output are visible in the chat — monitor its progress.
-
-**Delegate when:**
-- Large code generation or refactoring
-- Analysis of multiple files or large datasets
-- Multi-step research tasks
-- Any task that is self-contained (doesn't need your conversation history)
-
-**Don't delegate:**
-- Simple one-step tasks — just do them yourself
-- Tasks requiring conversation context the worker doesn't have
-- User-facing responses — you write those
-
-**How to delegate:**
-- Call \`delegate_to_worker\` with a clear, specific prompt
-- Include file paths the worker should read (optional)
-- Review the worker's output before using it
-- If unsatisfied, re-delegate with refinements or handle it yourself
-- If the worker returns an error with partial output, you may use the partial output and complete the task yourself
-
-You are responsible for the final answer. The worker is a helper, not a replacement.`;
+    const workerInstr = workerSystemPromptAugmentation(
+      input.workerConfig.model,
+    );
     systemPrompt = `${input.systemPrompt}${workerInstr}`;
   }
 

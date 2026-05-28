@@ -30,6 +30,7 @@ import {
   setWorkerContext,
   clearWorkerContext,
   getWorkerContext,
+  workerSystemPromptAugmentation,
   type WorkerApprovalRequest,
 } from "@/lib/workerRegistry";
 import { piToolFromSpec } from "@/lib/piAdapters";
@@ -105,21 +106,15 @@ async function runJob(input: JobRunnerInput): Promise<void> {
     const workerTool = piToolFromSpec(delegateToWorkerSpec, scope);
     tools.push(workerTool);
 
-    resolvedSystemPrompt = `${systemPrompt}
-
-## Worker delegation
-
-You have a worker model (\`${workerConfig.model}\`) available via \`delegate_to_worker\`. Use it to offload self-contained heavy work. The worker has the same tools as you. Its tool calls and output are visible in the chat.
-
-**Delegate:** large code generation, multi-file analysis, multi-step research.
-**Don't delegate:** simple one-step tasks, user-facing responses, tasks needing conversation history.
-You are responsible for the final answer. Review worker output before using it. Re-delegate if unsatisfied.`;
+    resolvedSystemPrompt = `${systemPrompt}${workerSystemPromptAugmentation(workerConfig.model)}`;
 
     // Register worker context for the delegate_to_worker handler.
-    // Worker tool approval is auto-approved in the background job
-    // path to avoid complexity with nested job.pendingApproval state.
+    // Worker approval uses the same pauseForApproval mechanism as the
+    // manager — the worker's beforeToolCall sends a tool_approval_required
+    // event (with source:"worker") and awaits the user's decision via
+    // the job's pendingApproval state.
     setWorkerContext(sessionId, {
-      controller: null as unknown as ReadableStreamDefaultController<Uint8Array>,
+      controller: null,
       enabledTools,
       scope,
       approvalState: {
@@ -128,7 +123,18 @@ You are responsible for the final answer. Review worker output before using it. 
       },
       workerConfig,
       activeWorker: null,
-      requestApproval: async () => "approve",
+      jobId,
+      requestApproval: async (req, _workerAgent) => {
+        const token = nanoid(16);
+        appendEvent(jobId, {
+          type: "tool_approval_required",
+          source: "worker",
+          token,
+          toolName: req.toolName,
+          arguments: req.arguments,
+        });
+        return await pauseForApproval(jobId, token, req.toolName, req.arguments);
+      },
     });
   }
 

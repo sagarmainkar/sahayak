@@ -265,16 +265,19 @@ export const delegateToWorkerSpec: ToolSpec = {
       }
 
       if (event.type === "message_end") {
-        // Log the content batch
-        if (contentChunk && !contentLogged) {
+        // Log the content batch accumulated since the last message_end
+        // or tool_execution_start. Reset after logging so the next
+        // batch (possibly without an intervening tool call) is captured.
+        if (contentChunk) {
           log.push({
             type: "content",
             summary:
               contentChunk.slice(0, 120) +
               (contentChunk.length > 120 ? "…" : ""),
           });
-          contentLogged = true;
         }
+        contentChunk = "";
+        contentLogged = false;
         // Extract final text from the assistant message
         const msg = event.message as any;
         const parts: string[] = [];
