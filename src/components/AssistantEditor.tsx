@@ -369,39 +369,86 @@ export function AssistantEditor({
               </span>
             </label>
             {form.worker && (
-              <div className="mt-2 ml-6 p-3 rounded-md border border-border bg-bg-paper">
-                <Field label="Worker model">
+              <div className="mt-2 ml-6 p-3 rounded-md border border-border bg-bg-paper space-y-3">
+                <Field label="Worker provider">
                   <select
-                    value={form.worker.model ?? ""}
+                    value={form.worker.provider ?? "ollama"}
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        worker: { ...form.worker!, model: e.target.value },
+                        worker: {
+                          ...form.worker!,
+                          provider: e.target.value as "ollama" | "llama-cpp" | "bedrock",
+                          model: "",
+                        },
                       })
                     }
                     className="w-full rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
                   >
-                    {models.length === 0 ? (
-                      <option value="" disabled>
-                        no models found
-                      </option>
-                    ) : (
-                      <>
-                        <option value="" disabled>
-                          select a worker model
-                        </option>
-                        {models
-                          .filter((m) => m.name !== form.model)
-                          .map((m) => (
-                            <option key={m.name} value={m.name}>
-                              {m.name}
-                              {m.params ? ` — ${m.params}` : ""}
-                              {m.quant ? ` ${m.quant}` : ""}
-                            </option>
-                          ))}
-                      </>
-                    )}
+                    <option value="ollama">ollama</option>
+                    <option value="llama-cpp">llama.cpp</option>
+                    <option value="bedrock">bedrock</option>
                   </select>
+                </Field>
+                {(form.worker.provider ?? "ollama") === "llama-cpp" && (
+                  <Field label="Worker llama.cpp URL">
+                    <input
+                      type="text"
+                      value={form.worker.llamaUrl ?? ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          worker: { ...form.worker!, llamaUrl: e.target.value },
+                        })
+                      }
+                      placeholder="http://localhost:8080"
+                      className="w-full rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
+                    />
+                  </Field>
+                )}
+                <Field label="Worker model">
+                  {(form.worker.provider ?? "ollama") === (form.provider ?? "ollama") ? (
+                    <select
+                      value={form.worker.model ?? ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          worker: { ...form.worker!, model: e.target.value },
+                        })
+                      }
+                      className="w-full rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
+                    >
+                      {models.length === 0 ? (
+                        <option value="" disabled>no models found</option>
+                      ) : (
+                        <>
+                          <option value="" disabled>select a worker model</option>
+                          {models
+                            .filter((m) => m.name !== form.model)
+                            .map((m) => (
+                              <option key={m.name} value={m.name}>
+                                {m.name}
+                                {m.params ? ` — ${m.params}` : ""}
+                                {m.quant ? ` ${m.quant}` : ""}
+                              </option>
+                            ))}
+                        </>
+                      )}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={form.worker.model ?? ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          worker: { ...form.worker!, model: e.target.value },
+                        })
+                      }
+                      placeholder={`model name (${form.worker.provider ?? "ollama"})`}
+                      className="w-full rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
+                    />
+                  )}
                 </Field>
               </div>
             )}
