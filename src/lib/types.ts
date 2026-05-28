@@ -34,6 +34,19 @@ export type Assistant = {
    *  undefined and will be auto-detected from model capabilities. For
    *  llama.cpp (where detection is unreliable), set explicitly. */
   supportsVision?: boolean;
+  /** Optional worker model for delegating self-contained subtasks.
+   *  When configured, the assistant gains a `delegate_to_worker` tool.
+   *  The worker runs as a sub-Agent with the same tools, stateless. */
+  worker?: {
+    model: string;
+    provider?: AssistantProvider;
+    /** Base URL for llama.cpp workers (ignored otherwise). */
+    llamaUrl?: string;
+    /** AWS region override for bedrock workers. */
+    bedrockRegion?: string;
+    /** Worker-specific system prompt. Falls back to a sensible default. */
+    systemPrompt?: string;
+  };
   createdAt: number;
   updatedAt: number;
 };
