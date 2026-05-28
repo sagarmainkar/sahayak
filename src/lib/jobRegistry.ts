@@ -108,39 +108,29 @@ export function appendEvent(jobId: string, data: Record<string, unknown>): void 
   const job = jobs.get(jobId);
   if (!job) return;
 
-  // Coalesce consecutive text/thinking deltas into one stored event.
-  // Character-level streaming produces thousands of deltas per turn;
-  // merging them into one event per message_update batch keeps the
-  // replay buffer small without affecting live subscribers (they
-  // still get real-time deltas via the subscriber callback below).
-  const lastEvent = job.events[job.events.length - 1];
-  const isDelta =
-    (data.type === "content" || data.type === "thinking") &&
-    typeof data.delta === "string";
-  if (
-    isDelta &&
-    lastEvent &&
-    lastEvent.data.type === data.type &&
-    typeof lastEvent.data.delta === "string"
-  ) {
-    // Mutate in-place: extend the stored delta text.
-    (lastEvent.data.delta as string) += data.delta as string;
-    // But notify live subscribers with the ORIGINAL incremental
-    // delta so the UI streams character-by-character.
-    const event: JobEvent = { id: nextEventId++, data };
-    for (const cb of job.subscribers) {
-      cb(event);
-    }
-    job.updatedAt = Date.now();
-    return;
-  }
-
   const event: JobEvent = { id: nextEventId++, data };
   job.events.push(event);
-  // Ring buffer: evict oldest when over the cap.
+
+  // Streaming produces thousands of character-level content/thinking
+  // deltas per turn. Those are only useful during LIVE streaming —
+  // for replay (reconnect) they're dead weight. When a turn completes
+  // (assistant_message carries the full text, done_turn has the token
+  // counts), prune intermediate deltas so the replay buffer only holds
+  // structural events (tool_call, tool_result, assistant_message, etc.).
+  const type = data.type as string;
+  if (type === "assistant_message" || type === "done_turn") {
+    job.events = job.events.filter((e) => {
+      const t = e.data.type as string;
+      return t !== "content" && t !== "thinking";
+    });
+  }
+
+  // Ring buffer safety cap — should rarely trigger after pruning,
+  // but prevents runaway growth from long tool chains.
   while (job.events.length > MAX_JOB_EVENTS) {
     job.events.shift();
   }
+
   job.updatedAt = Date.now();
   for (const cb of job.subscribers) {
     cb(event);
