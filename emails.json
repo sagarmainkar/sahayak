@@ -1,0 +1,441 @@
+{
+  "query": "(empty - latest emails)",
+  "fetchedAt": "2026-05-14T07:55:18Z",
+  "count": 62,
+  "emails": [
+    {
+      "id": "19e253f33f54dca7",
+      "from": "Indira National School <accounts@ins.ac.in>",
+      "subject": "Fee Payment Received - Indira National School",
+      "snippet": "Dear Parent , You have successfully made a payment of 34500.00 INR for your ward AABHA SAGAR MAINKAR of Indira National School.",
+      "date": "2026-05-14T12:19:18+0530"
+    },
+    {
+      "id": "19e253c88d3bd209",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "Declined Transaction: Usage Limit Exceeded on Your HDFC Bank Card",
+      "snippet": "Dear Customer, We regret to inform you that the transaction of Rs. 34891.13 on your HDFC Bank Credit Card ending with 8723 has declined.",
+      "date": "2026-05-14T12:16:24+0530"
+    },
+    {
+      "id": "19e252bbfedf7143",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "A payment was made using your Credit Card",
+      "snippet": "Dear Customer, Greetings from HDFC Bank. We would like to inform you that Rs. 40000.00 has been debited from your HDFC Bank Credit Card end…",
+      "date": "2026-05-14T11:58:04+0530"
+    },
+    {
+      "id": "19e2524c0ca9894b",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "View: Account update for your HDFC Bank A/c",
+      "snippet": "Dear Customer, Greetings from HDFC Bank! Rs.INR 35000.00 has been successfully added to your account ending XX7214 from XXXXXXXXXX7806-TPT-…",
+      "date": "2026-05-14T11:50:26+0530"
+    },
+    {
+      "id": "19e24d974b520f44",
+      "from": "Mirae Asset MF <noreply@miraeassetmf.co.in>",
+      "subject": "🎙️ Gold, Silver & Equities: Beyond the noise | Join us tomorrow @ 4 pm",
+      "snippet": "-- Click Here to unsubscribe...",
+      "date": "2026-05-14T10:28:11+0530"
+    },
+    {
+      "id": "19e2481a6c7c5d38",
+      "from": "Zerodha Broking Ltd <no-reply-account-statement@reportsmailer.zerodha.net>",
+      "subject": "Weekly Equity Statements for BVJ189; period: 2026/05/04 - 2026/05/09",
+      "snippet": "Zerodha Broking Limited logo Dear SAGAR ARUN MAINKAR, Client ID: BVJ189 The account statements for the period: 2026/05/04 - 2026/05/09 are …",
+      "date": "2026-05-14T08:52:15+0530"
+    },
+    {
+      "id": "19e257a0e4a3a6b3",
+      "from": "Bandhan Mutual Fund <products@info.bandhanmfmail.com>",
+      "subject": "🤝 Gold just left the chat. Silver made its move.",
+      "snippet": "Silver is the new gold. Invest now. Bandhan Mutual Fund Tap into Silver's Spotlight Bandhan Silver ETF FOF TL;DR Silver is seeing growi…",
+      "date": "2026-05-14T07:53:34+0000"
+    },
+    {
+      "id": "19e2543c923cca10",
+      "from": "HDFC Bank Alerts <alerts@hdfcbank.bank.in>",
+      "subject": "Credit Card Limit Modification",
+      "snippet": "Dear Customer, Thank you for banking with HDFC Bank! Your request to modify the limit for Online domestic transactions for your Credit Card…",
+      "date": "2026-05-14T06:54:17+0000"
+    },
+    {
+      "id": "19e253f21219896d",
+      "from": "Easebuzz <info@easebuzz.com>",
+      "subject": "Successful transaction on https://indiranationalschool.ac.in/",
+      "snippet": "Paid Successfully To https://indiranationalschool.ac.in/ ₹34500.0 via UPI Your payment for Easebuzz ID E2605140YOGZ3Y successfully complete…",
+      "date": "2026-05-14T06:49:13+0000"
+    },
+    {
+      "id": "19e253d95b750df0",
+      "from": "HDFC Bank Alerts <alerts@hdfcbank.bank.in>",
+      "subject": "Credit Card Limit Modification",
+      "snippet": "Dear Customer, Thank you for banking with HDFC Bank! Your request to modify the limit for Online domestic transactions for your Credit Card…",
+      "date": "2026-05-14T06:47:31+0000"
+    },
+    {
+      "id": "19e253c7e126da8e",
+      "from": "Easebuzz <info@easebuzz.com>",
+      "subject": "Transaction Declined https://indiranationalschool.ac.in/",
+      "snippet": "Uh Oh! Payment Declined Payment attempted to https://indiranationalschool.ac.in/ ₹34891.13 via Credit Card",
+      "date": "2026-05-14T06:46:20+0000"
+    },
+    {
+      "id": "19e252adef65c78a",
+      "from": "HDFC Bank Alerts <alerts@hdfcbank.bank.in>",
+      "subject": "Credit Card Limit Modification",
+      "snippet": "Dear Customer, Thank you for banking with HDFC Bank! Your request to modify the limit for Online domestic transactions for your Credit Card…",
+      "date": "2026-05-14T06:27:04+0000"
+    },
+    {
+      "id": "19e251e3d4941c52",
+      "from": "Karma Curated Experiences <karma.curated.events.india@karmaclub.community>",
+      "subject": "Bollinger, Backhands & Bohemian Nights!",
+      "snippet": "London perfume blending, Hyde Park headliners, Aussie mixers, vineyard lunches, VIP tennis & more… Karma Curated's weekly highlights",
+      "date": "2026-05-14T06:12:50+0000"
+    },
+    {
+      "id": "19e212c26884cd8a",
+      "from": "ICICI Bank <services@custcomm.icici.bank.in>",
+      "subject": "Stay ready for the unexpected",
+      "snippet": "Be financially prepared for emergencies Secure a minimum of 6 months' worth of expenses in FD Open an FD",
+      "date": "2026-05-13T17:20:02+0530"
+    },
+    {
+      "id": "19e211a9708b4b8d",
+      "from": "HDFC Bank <information@mailers.hdfcbank.bank.in>",
+      "subject": "🎉 Exclusive: A/c XX7214 is pre-approved for Classic Banking Programme!",
+      "snippet": "🎉 Premium perks INSIDE️ If you are unable to view this message correctly, click here STEP INTO THE CLASSIC BANKING PROGRAMME",
+      "date": "2026-05-13T17:00:15+0530"
+    },
+    {
+      "id": "19e20a3c67808828",
+      "from": "ICICI Bank <services@customercomm.icicibank.com>",
+      "subject": "A few minutes of your time can help us know you better!",
+      "snippet": "We would love to know you better. It will take just a few minutes. Take The Survey Your experience matters to us.",
+      "date": "2026-05-13T14:50:57+0530"
+    },
+    {
+      "id": "19e2096f385a4d6d",
+      "from": "ICICI Bank <services@customercomm.icicibank.com>",
+      "subject": "Your space deserves better cooling",
+      "snippet": "This summer, cooling comes with rewards Enjoy up to ₹10000 cashback on purchase of Air Conditioners",
+      "date": "2026-05-13T14:36:54+0530"
+    },
+    {
+      "id": "19e201b9b0a4a2eb",
+      "from": "ICICI Bank <services@custcomm.icicibank.com>",
+      "subject": "Get rewarded for tapping your phone to make payments",
+      "snippet": "Pay with your phone in one tap! A faster way to pay every time you shop. Enable Now",
+      "date": "2026-05-13T12:22:20+0530"
+    },
+    {
+      "id": "19e1fdd6fdf5462e",
+      "from": "Cbssbi Cas <cbssbi.cas@alerts.sbi.bank.in>",
+      "subject": "E-account statement for your SBI account(s).",
+      "snippet": "Dear Mrs. Nalini Arun Mainkar, Your account(s) details are available at your fingertips.",
+      "date": "2026-05-13T11:14:22+0530"
+    },
+    {
+      "id": "19e206ace48212e2",
+      "from": "HDFC Bank <feedback@hdfcbank.net>",
+      "subject": "Feedback on your experience with HDFC Bank",
+      "snippet": "Dear Customer, Your digital request for Form 121 with HDFC Bank is processed.",
+      "date": "2026-05-13T08:18:50+0000"
+    },
+    {
+      "id": "19e1b92b33e3cb67",
+      "from": "Credit Cards <credit_cards@icici.bank.in>",
+      "subject": "Payment received on your ICICI Bank Credit Card.",
+      "snippet": "Dear Customer, May 12,2026 Greetings from ICICI Bank! We have received payment of INR 2686.93 on your ICICI Bank Credit Card account",
+      "date": "2026-05-12T15:10:13+0530"
+    },
+    {
+      "id": "19e1c55084df01d5",
+      "from": "AlphaSights <mailer@alphasights.com>",
+      "subject": "Your AlphaSights Invoice 3416574-66A",
+      "snippet": "Hi Sagar Mainkar, Thank you for working with AlphaSights! Please find attached a copy of the invoice for your records.",
+      "date": "2026-05-12T13:16:33+0000"
+    },
+    {
+      "id": "19e1af8b8d95f32e",
+      "from": "SBI Mutual Fund <enq_sbimf@camsonline.com>",
+      "subject": "Statement of Account for Folio No. XXXXX237 in SBI Mutual Fund",
+      "snippet": "Dear Sagar Arun Mainkar , Please find enclosed statement of account towards confirmation of an earlier transaction",
+      "date": "2026-05-12T12:25:41+0530"
+    },
+    {
+      "id": "19e1ad60a8946814",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "FORM 121 Successful!",
+      "snippet": "Dear NALINI ARUN MAINKAR, Your request for FORM 121 with SR No. GHF690EDA5F1 is successful.",
+      "date": "2026-05-12T11:48:15+0530"
+    },
+    {
+      "id": "19e1ace1f388f4f5",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "View: Account update for your HDFC Bank A/c",
+      "snippet": "Dear Customer, Thank you for using HDFC Bank online banking.",
+      "date": "2026-05-12T11:39:36+0530"
+    },
+    {
+      "id": "19e1ac612a6b2ec7",
+      "from": "Zerodha Broking Ltd <no-reply-transaction-with-holding-statement@reportsmailer.zerodha.net>",
+      "subject": "Zerodha Broking Ltd: Monthly Demat Transaction with Holding Statement for BVJ189 - April - 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Client ID: BVJ189 Attached is the monthly Transaction with Holding Statement for the April - 2026.",
+      "date": "2026-05-12T11:30:47+0530"
+    },
+    {
+      "id": "19e1b05d64b2eea7",
+      "from": "AlphaSights <mailer@alphasights.com>",
+      "subject": "Successful verification - AlphaSights",
+      "snippet": "Hi Sagar Mainkar, We are happy to inform you that we received confirmation of your successful identity verification.",
+      "date": "2026-05-12T07:10:27+0000"
+    },
+    {
+      "id": "19e1acb3d848cf63",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "View: Account update for your HDFC Bank A/c",
+      "snippet": "Dear Customer, Thank you for banking with HDFC Bank. You have successfully reset your NetBanking password via HDFC Bank NetBanking.",
+      "date": "2026-05-12T06:06:26+0000"
+    },
+    {
+      "id": "19e19ef2541ee470",
+      "from": "<Credit Cards <<credit_cards@icici.bank.in>>",
+      "subject": "ICICI Bank Credit Card Statement for the period April 12 2026 to May 11 2026",
+      "snippet": "Credit Card Statement Payment due by May 29, 2026 ICICI Bank Credit Card XX5009 Minimum Amount Due: ₹140.00 Total Amount Due: ₹2686.93",
+      "date": "2026-05-12T02:05:56"
+    },
+    {
+      "id": "19e1b4480e24346b",
+      "from": "SBI Mutual Fund <enq_sbimf@camsonline.com>",
+      "subject": "SBI Mutual Fund - Purchase transaction confirmation",
+      "snippet": "Dear Sagar Arun Mainkar, Greetings from SBI Mutual Fund! We confirm having processed your purchase in SBI Small Cap Fund Direct Growth",
+      "date": "2026-05-12T01:18:54-0700"
+    },
+    {
+      "id": "19e18cfdc0819197",
+      "from": "Zerodha Broking Ltd <no-reply-margin-statements@reportsmailer.zerodha.net>",
+      "subject": "Daily Equity Margin Statement for BVJ189 - May 11, 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Attached is the daily equity margin statement for May 11, 2026 for your account BVJ189.",
+      "date": "2026-05-11T20:52:14+0000"
+    },
+    {
+      "id": "19e1757c65593c7c",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "❗ You have done a UPI txn. Check details!",
+      "snippet": "Dear Customer, Greetings from HDFC Bank! Rs.22000.00 is debited from your account ending 7214",
+      "date": "2026-05-11T19:31:28+0530"
+    },
+    {
+      "id": "19e171b021408c46",
+      "from": "Kunal Icon Manager <kunalicon.manager@gmail.com>",
+      "subject": "Reminder : KICHS Lift Project Bill for This Quarter (4th Instalment)",
+      "snippet": "Ref : 291/526 10th May 2026 Reminder: KICHS Lift Project Bill for This Quarter (4th Instalment)",
+      "date": "2026-05-11T18:24:25+0530"
+    },
+    {
+      "id": "19e1848166ab1ced",
+      "from": "Dylan Devletian <dylan.devletian@alphasights.com>",
+      "subject": "AlphaSights Payment - Thank you!",
+      "snippet": "Hi Sagar Thank you again for your help on this project — I hope you enjoyed the call!",
+      "date": "2026-05-11T18:23:58+0000"
+    },
+    {
+      "id": "19e17197ef3bb0d7",
+      "from": "Enotices <enotices@nsdl.com>",
+      "subject": "PVR INOX Limited - Audited Standalone & Consolidated Financial Results for the Fourth Quarter",
+      "snippet": "PVR INOX LIMITED CIN: L74899MH1995PLC387971 Regd. Office: 7 th Floor, Lotus Grandeur Building",
+      "date": "2026-05-11T18:18:50+0530"
+    },
+    {
+      "id": "19e17e2425e430b7",
+      "from": "Dylan Devletian <dylan.devletian@alphasights.com>",
+      "subject": "AlphaSights Interaction Reminder regarding Cybersecurity",
+      "snippet": "Dear Sagar, Thanks again for your help here. As a reminder, you have a call scheduled for Monday, May 11th at 23:00 +0530",
+      "date": "2026-05-11T16:32:43+0000"
+    },
+    {
+      "id": "19e1769487f18907",
+      "from": "Dylan Devletian <dylan.devletian@alphasights.com>",
+      "subject": "AlphaSights Interaction Confirmation - Monday, May 11th at 23:00 +0530",
+      "snippet": "Hi Sagar, Great news- I heard back from the client and they are very excited to speak with you.",
+      "date": "2026-05-11T14:20:36+0000"
+    },
+    {
+      "id": "19e159c79a4fc226",
+      "from": "HDFC Bank InstaAlerts <alerts@hdfcbank.bank.in>",
+      "subject": "View: Account update for your HDFC Bank A/c",
+      "snippet": "Dear Card Holder, Thank you for using your HDFC Bank Debit Card ending 3068 for ATM withdrawal for Rs 1000",
+      "date": "2026-05-11T11:27:16+0530"
+    },
+    {
+      "id": "19e1052539465551",
+      "from": "ICICI Prudential Mutual Fund <enq_P@camsonline.com>",
+      "subject": "Monthly Portfolio Disclosure - As on Apr 30, 2026 and Revised Risk-o-Meter",
+      "snippet": "Dear Investor, Greetings from ICICI Prudential Mutual Fund! In pursuance to SEBI Master circular",
+      "date": "2026-05-10T10:48:11+0530"
+    },
+    {
+      "id": "19e05eed5ae59877",
+      "from": "ICICI Bank <services@customer.icici.bank.in>",
+      "subject": "Fake Traffic Challan Alerts – Stay Cautious",
+      "snippet": "Stay Alert, Stay Protected Verify traffic challans only through official sources Dear Sagar Arun Mainkar",
+      "date": "2026-05-08T10:23:07+0530"
+    },
+    {
+      "id": "19e04179ea10b4c8",
+      "from": "Zerodha Broking Ltd <no-reply-margin-statements@reportsmailer.zerodha.net>",
+      "subject": "Daily Equity Margin Statement for BVJ189 - May 7, 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Attached is the daily equity margin statement for May 7, 2026 for your account BVJ189.",
+      "date": "2026-05-07T20:18:36+0000"
+    },
+    {
+      "id": "19e0298f4584d829",
+      "from": "Dylan Devletian <dylan.devletian@alphasights.com>",
+      "subject": "Consulting Opportunity - Commercial Vulnerability Management Software & Continuous Threat Exposure Management",
+      "snippet": "Hi Sagar, Hope all is well with you! I believe you have been in contact with one of my colleagues previously",
+      "date": "2026-05-07T13:20:39+0000"
+    },
+    {
+      "id": "19e0373f226bdc5f",
+      "from": "SBI Mutual Fund <enq_sbimf@camsonline.com>",
+      "subject": "SBI Mutual Fund- SIP-installment intimation",
+      "snippet": "Dear Investor, We thank you for your investment in SBI Mutual Fund. We would like to inform you that your SIP instalment of Rs. 2000",
+      "date": "2026-05-07T10:19:50-0700"
+    },
+    {
+      "id": "19deb2590a34717d",
+      "from": "Cbssbi Info <cbssbi.info@alerts.sbi.bank.in>",
+      "subject": "DEPOSIT ACCOUNTS INTEREST CERTIFICATE FOR FINANCIAL YEAR 2025-26.",
+      "snippet": "Dear Mrs. Nalini Arun Mainkar, Attached here with is the Deposit Accounts Interest Certificate for Financial Year 2025-26.",
+      "date": "2026-05-03T05:33:20+0530"
+    },
+    {
+      "id": "19de8874b7a09026",
+      "from": "<Cbsalerts Sbi <<cbsalerts.sbi@alerts.sbi.bank.in>>",
+      "subject": "CBSSBI ALERT",
+      "snippet": "भारतीय स्टेट बैंक की ओर से शुभकामनाएं ! Greetings from SBI ! Your A/C XXXXX782186 Credited INR 100.00",
+      "date": "2026-05-02T17:21:13+0530"
+    },
+    {
+      "id": "19de97bf7ba1701d",
+      "from": "Estatement <estatement@icici.bank.in>",
+      "subject": "ICICI Bank Statement from April 01, 2026 to April 30, 2026 for XXXXXXXX7094",
+      "snippet": "Enter all letters in small case without adding any special characters, spaces or salutation.",
+      "date": "2026-05-02T16:18:24"
+    },
+    {
+      "id": "19de36c952f4409f",
+      "from": "Cbssbi Info <cbssbi.info@alerts.sbi.bank.in>",
+      "subject": "DEPOSIT ACCOUNTS INTEREST CERTIFICATE FOR FINANCIAL YEAR 2025-26.",
+      "snippet": "Dear Mr. SAGAR ARUN MAINKAR, Attached here with is the Deposit Accounts Interest Certificate for Financial Year 2025-26.",
+      "date": "2026-05-01T17:33:56+0530"
+    },
+    {
+      "id": "19dde3bd3392cdf6",
+      "from": "Credit Cards <credit_cards@icici.bank.in>",
+      "subject": "Transaction alert for your ICICI Bank Credit Card",
+      "snippet": "Dear Customer, Your ICICI Bank Credit Card",
+      "date": "2026-04-30T17:21:20+0530"
+    },
+    {
+      "id": "19dd04bb4c37e2a0",
+      "from": "Zoe Bustin <zoe.bustin@alphasights.com>",
+      "subject": "AlphaSights Project Closed: Vulnerability Management and Patch Management",
+      "snippet": "Hi Sagar, I recently contacted you for a project on Vulnerability Management and Patch Management",
+      "date": "2026-04-27T18:55:15+0000"
+    },
+    {
+      "id": "19dcf048a46c1072",
+      "from": "Zerodha Broking Ltd <no-reply-account-statement@reportsmailer.zerodha.net>",
+      "subject": "Zerodha Broking Ltd: Quarterly Equity Account Statement for BVJ189 - Quarter 4, 2025-2026",
+      "snippet": "Zerodha Broking Limited logo Dear SAGAR ARUN MAINKAR, Client ID: BVJ189 Attached is the quarterly equity account statement",
+      "date": "2026-04-27T18:27:53+0530"
+    },
+    {
+      "id": "19dcdcd32cd59221",
+      "from": "SBI <sbi@communications.sbi.co.in>",
+      "subject": "Bank Smarter with the New Yono Net Banking",
+      "snippet": "For any assistance or feedback: Call - 1800111101 (24x7), 022-20744646",
+      "date": "2026-04-27T12:47:49+0530"
+    },
+    {
+      "id": "19dbbf1ab4490512",
+      "from": "Cbssbi Cas <cbssbi.cas@alerts.sbi.bank.in>",
+      "subject": "E-account statement for your SBI account(s).",
+      "snippet": "Dear Mrs. Nalini Arun Mainkar, Your account(s) details are available at your fingertips.",
+      "date": "2026-04-24T01:34:28+0530"
+    },
+    {
+      "id": "19dbc095724fa8e7",
+      "from": "Zerodha Broking Ltd <no-reply-margin-statements@reportsmailer.zerodha.net>",
+      "subject": "Daily Equity Margin Statement for BVJ189 - April 23, 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Attached is the daily equity margin statement for April 23, 2026 for your account BVJ189.",
+      "date": "2026-04-23T20:30:20+0000"
+    },
+    {
+      "id": "19db73efa7a683e2",
+      "from": "SBI Mutual Fund <enq_sbimf@camsonline.com>",
+      "subject": "Statement of Account for Folio No. XXXXX237 in SBI Mutual Fund",
+      "snippet": "Dear Sagar Arun Mainkar , Please find enclosed statement of account towards confirmation",
+      "date": "2026-04-23T02:46:24+0530"
+    },
+    {
+      "id": "19db6d95e425eaf7",
+      "from": "Zerodha Broking Ltd <no-reply-margin-statements@reportsmailer.zerodha.net>",
+      "subject": "Daily Equity Margin Statement for BVJ189 - April 22, 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Attached is the daily equity margin statement for April 22, 2026 for your account BVJ189.",
+      "date": "2026-04-22T20:19:51+0000"
+    },
+    {
+      "id": "19db67d550b44027",
+      "from": "SBI Mutual Fund <enq_sbimf@camsonline.com>",
+      "subject": "SBIMF - Annual Statement of Account for FY 25-26 Folio No.:XXXXX237",
+      "snippet": "Dear Valued Investor, We're reaching out to express our sincere gratitude for your continued investment",
+      "date": "2026-04-22T19:23:56+0530"
+    },
+    {
+      "id": "19db0aa99db94bd5",
+      "from": "Zerodha Broking Ltd <no-reply-contract-notes@reportsmailer.zerodha.net>",
+      "subject": "Combined Equity Contract Note for BVJ189 - April 21, 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Attached is the combined equity contract note for trades done on April 21, 2026",
+      "date": "2026-04-21T15:31:01+0000"
+    },
+    {
+      "id": "19d9bd91127abfa7",
+      "from": "zoe.bustin@alphasights.com (Google Calendar) <calendar-notification@google.co.in>",
+      "subject": "Reminder: Intro Call (Sagar Mainkar) @ Fri Apr 17, 2026 9pm - 9:15pm (IST)",
+      "snippet": "You have an upcoming appointment with zoe.bustin@alphasights.com Intro Call (Sagar Mainkar)",
+      "date": "2026-04-17T14:29:47+0000"
+    },
+    {
+      "id": "19d9ad0c601de16b",
+      "from": "Zoe Bustin <zoe.bustin@alphasights.com>",
+      "subject": "Appointment booked: Intro Call (Sagar Mainkar) @ Fri Apr 17, 2026 9pm - 9:15pm (IST)",
+      "snippet": "Booked by Sagar Mainkar sagar.mainkar@gmail.com 9619150120 Intro Call (Sagar Mainkar)",
+      "date": "2026-04-17T09:41:05+0000"
+    },
+    {
+      "id": "19d97c720b653216",
+      "from": "Zerodha Broking Ltd <no-reply-margin-statements@reportsmailer.zerodha.net>",
+      "subject": "Daily Equity Margin Statement for BVJ189 - April 16, 2026",
+      "snippet": "Dear SAGAR ARUN MAINKAR, Attached is the daily equity margin statement for April 16, 2026",
+      "date": "2026-04-16T19:31:41+0000"
+    },
+    {
+      "id": "19d9842613d6243e",
+      "from": "Zoe Bustin <zoe.bustin@alphasights.com>",
+      "subject": "Re: AlphaSights Spot Consulting Opportunity | Vulnerability Management and Patch Management",
+      "snippet": "Sounds good, looking forward to connecting! Best, Zoe",
+      "date": "2026-04-16T17:45:42-0400"
+    },
+    {
+      "id": "19ca9459c5ed46c6",
+      "from": "Easebuzz <info@easebuzz.com>",
+      "subject": "Successful transaction on https://indiranationalschool.ac.in/",
+      "snippet": "Paid Successfully To https://indiranationalschool.ac.in/ ₹57550.0 via UPI",
+      "date": "2026-03-01T12:00:36+0000"
+    }
+  ]
+}

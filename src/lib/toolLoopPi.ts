@@ -49,6 +49,9 @@ export type PiRunInput = {
   /** When true, skip implicit tools entirely. Used for compaction
    *  summariser which only needs raw text generation. */
   bare?: boolean;
+  /** Override the model's maxTokens. Compaction sets this to the
+   *  summary budget so the model knows its output ceiling. */
+  maxTokens?: number;
 };
 
 type PauseEntry = {
@@ -269,6 +272,12 @@ export async function startPiRun(
       : input.provider === "llama-cpp" && input.llamaBaseUrl
         ? piModelForOpenAICompat(input.llamaBaseUrl, input.model, "llama-cpp")
         : piModelForOllama(input.model);
+  // Compaction sets maxTokens to summaryBudget so the model knows
+  // its output ceiling. Default model config uses 32k which is
+  // fine for normal chat but too vague for length-targeted summaries.
+  if (input.maxTokens !== undefined) {
+    (model as { maxTokens: number }).maxTokens = input.maxTokens;
+  }
   const scope = {
     assistantId: input.assistantId,
     sessionId: input.sessionId,

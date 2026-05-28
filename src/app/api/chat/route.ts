@@ -56,6 +56,9 @@ type ChatRequest = {
   /** When true, skip memory injection and implicit tools. Used by the
    *  client-side compaction summariser which only needs raw generation. */
   bare?: boolean;
+  /** Override the model's output token limit. Compaction uses this
+   *  to match the summary budget exactly so the model knows its ceiling. */
+  maxTokens?: number;
 };
 
 export async function POST(req: Request) {
@@ -188,6 +191,7 @@ export async function POST(req: Request) {
             llamaBaseUrl,
             bedrockRegion,
             bare: body.bare,
+            maxTokens: body.maxTokens,
           },
           controller,
         );

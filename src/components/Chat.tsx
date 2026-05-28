@@ -633,6 +633,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     sid: string,
     msgs: ChatMessage[],
     tokens: { prompt: number; completion: number },
+    opts?: { backup?: boolean },
   ) {
     await fetch(`/api/sessions/${sid}`, {
       method: "PATCH",
@@ -641,6 +642,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         messages: msgs,
         promptTokens: tokens.prompt,
         completionTokens: tokens.completion,
+        ...(opts?.backup ? { backup: true } : {}),
       }),
     });
   }
@@ -1279,24 +1281,29 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
     const older = messages.slice(0, messages.length - 4);
     // Budget-aware compaction — everything scales from ctxMax so we
     // never produce a summary that itself doesn't fit. Three knobs:
-    //   - summaryBudget: output tokens the summariser may emit.
-    //     Min(20% of ctxMax, 8k). 8k matches llama-server's default
-    //     `-n 8192` ceiling; Ollama is usually uncapped so 8k is the
-    //     practical limit on both paths.
+    //   - summaryBudget: 20% of ctxMax, floored at 6k (matches
+    //     typical 9B output). Large models (128K–200K) get
+    //     proportionally bigger summaries (20–40K tokens) so
+    //     important decisions aren't crushed into a few paragraphs.
     //   - safetyMargin: system prompt + memory injection + a buffer
     //     for the NEXT user message. 5% of ctxMax, floored at 2k.
     //   - inputBudget: ctxMax - keep - summary - safety.
     //     This is the total older-history tokens we feed to the
     //     summariser. Middle-out truncated if exceeded.
-    // Fallback when ctxMax is unknown: conservative 32k defaults.
-    const fallbackCtx = 32_000;
-    const ctxForCalc = ctxMax ?? fallbackCtx;
+    // Fallback when ctxMax is unknown: use accumulated prompt tokens
+    // as a floor. If the session has 253k tokens, the model clearly
+    // supports at least that much. Clamp to 200k sanity ceiling so we
+    // don't request 100K-token summaries from a runaway counter.
+    const ctxForCalc = ctxMax ?? Math.max(32_000, Math.min(200_000, ctx.prompt));
     const estimateTokens = (s: string) => Math.ceil(s.length / 4);
     const keepTokens = keep.reduce(
       (sum, m) => sum + estimateTokens(m.content ?? "") + estimateTokens(m.thinking ?? ""),
       0,
     );
-    const summaryBudget = Math.min(8000, Math.floor(ctxForCalc * 0.2));
+    // Scale to 20% of context window with a 6k floor. For 32K models
+    // this yields 6.4k (tight 9B limit), for 128K models 25.6k, for
+    // 200K models 40k. No ceiling — cloud models handle large output.
+    const summaryBudget = Math.max(6000, Math.floor(ctxForCalc * 0.2));
     const safetyMargin = Math.max(2000, Math.floor(ctxForCalc * 0.05));
     const inputBudget = Math.max(
       2000,
@@ -1365,13 +1372,11 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
     let text = "";
     try {
-      // Prefer a small-and-fast local summariser when available, but
-      // llama.cpp assistants only have the one model loaded — use
-      // that. Ollama assistants get the 9b_128k fast-path if pulled.
-      const isLlama = assistant.provider === "llama-cpp";
-      const summariserModel = isLlama
-        ? activeModel
-        : models.find((m) => m.name.includes("9b_128k"))?.name ?? activeModel;
+      // Always use the active assistant model for compaction. Small
+      // models (9B) produce tight 6-8K summaries; large models
+      // (deepseek, kimi, bedrock) produce proportionally longer ones.
+      // A fast local fallback loses too much fidelity for big contexts.
+      const summariserModel = activeModel;
       // Target length guidance in the system prompt — models follow
       // these loosely but a clear number anchors them. Scaled to
       // summaryBudget, expressed in "words" (~0.75 tokens/word) since
@@ -1383,10 +1388,36 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         body: JSON.stringify({
           model: summariserModel,
           system:
-            `Compress the chat history into a rich, faithful summary. Target length: around ${targetWords} words (±30%). Preserve: names, IDs, file paths, commit hashes, URLs, exact error messages, and specific numbers verbatim. Organise by topic with short ## sub-headings. Under each, use terse bullets capturing: what happened, decisions made, open questions, unresolved errors, facts about the user or project. Don't compress so tightly that specifics are lost — the summary is replacing the actual transcript and will be the agent's only memory of pre-compact turns. If the input contains a '[system-note] … elided …' marker, acknowledge the gap in a bullet.`,
+            `Compact the following conversation into a structured, comprehensive summary. This summary will REPLACE the original transcript — it is the agent's ONLY memory of everything that happened before now.
+
+CRITICAL LENGTH REQUIREMENT: You MUST produce approximately ${targetWords} words (range: ${Math.floor(targetWords * 0.7)}–${Math.floor(targetWords * 1.3)}). This is a large summary — do NOT be terse. A 500-word summary of a long conversation is a FAILURE. Expand each section with specific details: exact paths, full commands, verbatim error messages, configuration values, commit hashes.
+
+REQUIRED STRUCTURE — use exactly these ## headings in this order:
+
+## Decisions Made
+Every concrete decision, who made it, and the rationale. Include commit hashes, version pins, config values.
+
+## Key Facts & Context
+File paths, URLs, API endpoints, error messages verbatim, IDs, port numbers, model names, hardware specs. Every factual detail the agent might need later.
+
+## User Preferences & Style
+How the user wants things done, naming conventions, stack choices, things explicitly rejected. HIGH PRIORITY — the agent MUST remember these across sessions.
+
+## Project State
+Current state: what was built, what changed, what's broken, what's in progress. Active branches, deployed versions, known issues.
+
+## Open Questions & Blockers
+Unresolved issues, decisions deferred, things waiting on user input.
+
+## Conversation Log (abbreviated)
+Chronological one-line summaries of each exchange. De-prioritize this section if space is tight — the five sections above are more important.
+
+EXCLUDE: greetings, pleasantries, "thanks", system memory nudges. If the input contains '[system-note] … elided …' markers, note the gap under Key Facts.
+`,
           messages: [{ role: "user", content: summaryText }],
           think: false,
           bare: true,
+          maxTokens: summaryBudget,
           assistantId: assistant.id,
           sessionId: sessionId as string,
           provider: assistant.provider ?? "ollama",
@@ -1464,7 +1495,7 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
         completion: 0,
       };
       setCtx(newCtx);
-      await persist(sessionId, next, newCtx);
+      await persist(sessionId, next, newCtx, { backup: true });
     } catch (e) {
       // Revert — remove the placeholder, restore original messages — and
       // surface the failure inline as a system note (no browser alert).

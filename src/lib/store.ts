@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import { existsSync } from "node:fs";
 import { nanoid } from "nanoid";
 import type { Assistant, ChatMessage, Session } from "@/lib/types";
@@ -439,14 +440,38 @@ export async function updateSession(
     promptTokens?: number;
     completionTokens?: number;
     pinned?: boolean;
+    /** Before overwriting, copy current session.jsonl to a
+     *  timestamped .bak file. Used by compaction to allow
+     *  recovery if the summariser produces garbage. */
+    backup?: boolean;
   },
 ): Promise<Session | null> {
   if (!existsSync(DATA_DIR)) return null;
+  const BACKUP_KEEP = 5;
   const assistants = await fs.readdir(DATA_DIR, { withFileTypes: true });
   for (const a of assistants) {
     if (!a.isDirectory()) continue;
     const p = sessionFile(a.name, id);
     if (!existsSync(p)) continue;
+
+    // Pre-compaction safety net: copy the current file before
+    // overwriting so the user can recover if the summariser
+    // produces a garbled or truncated result.
+    if (patch.backup) {
+      const bakPath = `${p}.bak-${Date.now()}`;
+      await fs.copyFile(p, bakPath);
+      // Rotate: keep only the last BACKUP_KEEP .bak files.
+      const dir = sessionDir(a.name, id);
+      const entries = await fs.readdir(dir);
+      const baks = entries
+        .filter((e) => e.startsWith("session.jsonl.bak-"))
+        .sort()
+        .reverse();
+      for (const stale of baks.slice(BACKUP_KEEP)) {
+        await fs.unlink(path.join(dir, stale)).catch(() => {});
+      }
+    }
+
     const loaded = await loadSessionFile(p);
     if (!loaded) return null;
     const newMeta: MetaRecord = {
