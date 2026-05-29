@@ -144,10 +144,7 @@ export const delegateToWorkerSpec: ToolSpec = {
       (t) => t !== "delegate_to_worker",
     );
     const workerTools = await piToolsFromEnabled(workerEnabledTools, scope);
-    const workerApprovalState = {
-      autoApproveTools: [...wc.approvalState.autoApproveTools],
-      requireApproval: [...wc.approvalState.requireApproval],
-    };
+    const workerApprovalState = wc.approvalState;
 
     // ── Read files ─────────────────────────────────────────────────────
     let fileContents = "";
@@ -220,6 +217,12 @@ export const delegateToWorkerSpec: ToolSpec = {
         if (decision === "cancel") {
           agent.abort();
           return { block: true, reason: "user_cancelled" };
+        }
+        // Remember this approval so the worker won't ask for the same
+        // tool again this delegation. Shares the array with the manager's
+        // context so manager-approved tools also propagate to the worker.
+        if (!workerApprovalState.autoApproveTools.includes(toolCall.name)) {
+          workerApprovalState.autoApproveTools.push(toolCall.name);
         }
         return undefined;
       },

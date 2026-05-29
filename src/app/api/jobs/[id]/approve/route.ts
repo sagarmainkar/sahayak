@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getJob, resolveApproval } from "@/lib/jobRegistry";
+import { getWorkerContext } from "@/lib/workerRegistry";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -23,6 +24,16 @@ export async function POST(
 
   if (autoApproveTools !== undefined) {
     job.autoApproveTools = autoApproveTools;
+    // Sync to worker context so worker's isGated check sees the
+    // same approved tools as the manager.
+    const wc = getWorkerContext(job.sessionId);
+    if (wc) {
+      wc.approvalState.autoApproveTools.splice(
+        0,
+        wc.approvalState.autoApproveTools.length,
+        ...autoApproveTools,
+      );
+    }
   }
 
   const ok = resolveApproval(id, decision);
