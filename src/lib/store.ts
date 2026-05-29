@@ -264,6 +264,12 @@ type MetaRecord = {
   modelOverride: string | null;
   promptTokens: number;
   completionTokens: number;
+  /** Tokens served from the Bedrock KV cache (billed at ~10% of input rate).
+   *  0 for Ollama/llama-cpp which don't report cache splits. */
+  cacheReadTokens: number;
+  /** Tokens written into the Bedrock KV cache (billed at ~125% of input rate).
+   *  Only non-zero on the first turn after a cache miss. */
+  cacheWriteTokens: number;
   createdAt: number;
   updatedAt: number;
   pinned?: boolean;
@@ -312,6 +318,10 @@ function metaToSession(meta: MetaRecord, messages: ChatMessage[]): Session {
     messages,
     promptTokens: meta.promptTokens,
     completionTokens: meta.completionTokens,
+    // Older JSONL files won't have these fields — default to 0 so
+    // callers always get a number (no undefined leaking through).
+    cacheReadTokens: meta.cacheReadTokens ?? 0,
+    cacheWriteTokens: meta.cacheWriteTokens ?? 0,
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
     ...(meta.pinned ? { pinned: true } : {}),
@@ -372,6 +382,8 @@ export async function listSessionMetas(
           modelOverride: meta.modelOverride,
           promptTokens: meta.promptTokens,
           completionTokens: meta.completionTokens,
+          cacheReadTokens: meta.cacheReadTokens ?? 0,
+          cacheWriteTokens: meta.cacheWriteTokens ?? 0,
           createdAt: meta.createdAt,
           updatedAt: meta.updatedAt,
           ...(meta.pinned ? { pinned: true } : {}),
@@ -419,6 +431,8 @@ export async function createSession(
     modelOverride: input.modelOverride ?? null,
     promptTokens: 0,
     completionTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     createdAt: now,
     updatedAt: now,
   };
@@ -439,6 +453,8 @@ export async function updateSession(
     modelOverride?: string | null;
     promptTokens?: number;
     completionTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
     pinned?: boolean;
     /** Before overwriting, copy current session.jsonl to a
      *  timestamped .bak file. Used by compaction to allow
@@ -486,6 +502,12 @@ export async function updateSession(
       ...(patch.completionTokens !== undefined && {
         completionTokens: patch.completionTokens,
       }),
+      ...(patch.cacheReadTokens !== undefined && {
+        cacheReadTokens: patch.cacheReadTokens,
+      }),
+      ...(patch.cacheWriteTokens !== undefined && {
+        cacheWriteTokens: patch.cacheWriteTokens,
+      }),
       ...(patch.pinned !== undefined && { pinned: patch.pinned }),
       updatedAt: Date.now(),
     };
@@ -529,6 +551,8 @@ export async function appendMessage(
       modelOverride: null,
       promptTokens: 0,
       completionTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       createdAt: now,
       updatedAt: now,
     };

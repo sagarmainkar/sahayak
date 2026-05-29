@@ -70,6 +70,7 @@ export type PiRunInput = {
     llamaUrl?: string;
     bedrockRegion?: string;
     systemPrompt?: string;
+    maxParallel?: number;
   };
 };
 
@@ -187,18 +188,20 @@ function attachTranslator(
             toolCalls.push({ name: part.name, arguments: part.arguments });
           }
         }
-        // pi-ai splits prompt tokens into `input` (newly processed)
-        // and `cacheRead` (reused from the backend's KV cache). Both
-        // are part of the prompt the model saw. For ContextPie +
-        // auto-compact we want the full prompt size, so sum them.
-        // Ollama doesn't split, so cacheRead is 0 there and this is
-        // equivalent to the old behaviour.
-        const promptTokens =
-          (msg.usage?.input ?? 0) + (msg.usage?.cacheRead ?? 0);
+        // pi-ai splits prompt tokens into `input` (newly processed),
+        // `cacheRead` (tokens served from the KV cache — billed at a
+        // discount), and `cacheWrite` (tokens written into the cache
+        // for the first time — billed at a small premium).
+        // Ollama doesn't split, so cacheRead/cacheWrite are 0 there.
+        const cacheReadTokens  = msg.usage?.cacheRead  ?? 0;
+        const cacheWriteTokens = msg.usage?.cacheWrite ?? 0;
+        const promptTokens     = (msg.usage?.input ?? 0) + cacheReadTokens;
         sse(controller, {
           type: "done_turn",
           promptTokens,
           completionTokens: msg.usage?.output ?? 0,
+          cacheReadTokens,
+          cacheWriteTokens,
         });
         sse(controller, {
           type: "assistant_message",
@@ -317,6 +320,7 @@ export async function startPiRun(
 
     const workerInstr = workerSystemPromptAugmentation(
       input.workerConfig.model,
+      input.workerConfig.maxParallel ?? 1,
     );
     systemPrompt = `${input.systemPrompt}${workerInstr}`;
   }
@@ -344,7 +348,8 @@ export async function startPiRun(
       scope,
       approvalState,
       workerConfig: input.workerConfig,
-      activeWorker: null,
+      activeWorkers: new Map(),
+      maxParallel: input.workerConfig.maxParallel ?? 1,
       requestApproval: async (
         req: WorkerApprovalRequest,
         workerAgent: { abort: () => void },
@@ -361,8 +366,13 @@ export async function startPiRun(
           pending.set(token, {
             agent: workerAgent as unknown as Agent,
             resolve,
-            autoApproveTools: [...approvalState.autoApproveTools],
-            requireApproval: [...approvalState.requireApproval],
+            // Use direct references (not spread copies) so that resumePiRun's
+            // splice() on entry.autoApproveTools mutates the same array that
+            // the worker's beforeToolCall closure reads via workerApprovalState.
+            // Using spread copies meant splice() updated a dead copy and the
+            // approval was never visible to subsequent worker tool calls.
+            autoApproveTools: approvalState.autoApproveTools,
+            requireApproval: approvalState.requireApproval,
             createdAt: Date.now(),
           });
         });
@@ -459,9 +469,9 @@ export async function startPiRun(
       }
       // Abort any active worker and clean up the registry entry.
       const wc = getWorkerContext(input.sessionId);
-      if (wc?.activeWorker) {
-        wc.activeWorker.abort();
-        wc.activeWorker = null;
+      if (wc?.activeWorkers?.size) {
+        for (const w of wc.activeWorkers.values()) w.abort();
+        wc.activeWorkers.clear();
       }
       clearWorkerContext(input.sessionId);
       safeClose(ctrl.current);
@@ -483,9 +493,9 @@ export async function startPiRun(
     }
     // Clean up worker if one was running.
     const wc = getWorkerContext(input.sessionId);
-    if (wc?.activeWorker) {
-      wc.activeWorker.abort();
-      wc.activeWorker = null;
+    if (wc?.activeWorkers?.size) {
+      for (const w of wc.activeWorkers.values()) w.abort();
+      wc.activeWorkers.clear();
     }
     clearWorkerContext(input.sessionId);
     safeClose(ctrl.current);

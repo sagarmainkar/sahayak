@@ -58,6 +58,7 @@ export type JobRunnerInput = {
     llamaUrl?: string;
     bedrockRegion?: string;
     systemPrompt?: string;
+    maxParallel?: number;
   };
 };
 
@@ -106,7 +107,7 @@ async function runJob(input: JobRunnerInput): Promise<void> {
     const workerTool = piToolFromSpec(delegateToWorkerSpec, scope);
     tools.push(workerTool);
 
-    resolvedSystemPrompt = `${systemPrompt}${workerSystemPromptAugmentation(workerConfig.model)}`;
+    resolvedSystemPrompt = `${systemPrompt}${workerSystemPromptAugmentation(workerConfig.model, workerConfig.maxParallel ?? 1)}`;
 
     // Register worker context for the delegate_to_worker handler.
     // Worker approval uses the same pauseForApproval mechanism as the
@@ -122,7 +123,8 @@ async function runJob(input: JobRunnerInput): Promise<void> {
         requireApproval: input.requireApproval ?? [],
       },
       workerConfig,
-      activeWorker: null,
+      activeWorkers: new Map(),
+      maxParallel: workerConfig.maxParallel ?? 1,
       jobId,
       requestApproval: async (req, _workerAgent) => {
         const token = nanoid(16);
@@ -215,9 +217,9 @@ async function runJob(input: JobRunnerInput): Promise<void> {
   setJobAbort(jobId, () => {
     // Abort any active worker first.
     const wc = getWorkerContext(sessionId);
-    if (wc?.activeWorker) {
-      wc.activeWorker.abort();
-      wc.activeWorker = null;
+    if (wc?.activeWorkers?.size) {
+      for (const w of wc.activeWorkers.values()) w.abort();
+      wc.activeWorkers.clear();
     }
     clearWorkerContext(sessionId);
     agent.abort();
@@ -267,14 +269,17 @@ async function runJob(input: JobRunnerInput): Promise<void> {
           }
         }
 
-        const promptTokens =
-          (msg.usage?.input ?? 0) + (msg.usage?.cacheRead ?? 0);
+        const cacheReadTokens  = msg.usage?.cacheRead  ?? 0;
+        const cacheWriteTokens = msg.usage?.cacheWrite ?? 0;
+        const promptTokens     = (msg.usage?.input ?? 0) + cacheReadTokens;
         const completionTokens = msg.usage?.output ?? 0;
 
         appendEvent(jobId, {
           type: "done_turn",
           promptTokens,
           completionTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
         });
         appendEvent(jobId, {
           type: "assistant_message",
@@ -286,6 +291,8 @@ async function runJob(input: JobRunnerInput): Promise<void> {
         await updateSessionMeta(assistantId, sessionId, {
           promptTokens,
           completionTokens,
+          cacheReadTokens,
+          cacheWriteTokens,
         });
 
         const chatMsg: ChatMessage = {

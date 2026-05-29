@@ -46,6 +46,11 @@ export type Assistant = {
     bedrockRegion?: string;
     /** Worker-specific system prompt. Falls back to a sensible default. */
     systemPrompt?: string;
+    /** Maximum number of workers that may run concurrently.
+     *  1 = sequential (default, safe for local/slow models).
+     *  N > 1 = allows the manager to call delegate_to_worker up to N times
+     *  in a single turn. Use only with fast cloud workers. */
+    maxParallel?: number;
   };
   createdAt: number;
   updatedAt: number;
@@ -130,6 +135,10 @@ export type Session = {
   messages: ChatMessage[];
   promptTokens: number;
   completionTokens: number;
+  /** Tokens served from the Bedrock KV cache. 0 for non-Bedrock providers. */
+  cacheReadTokens: number;
+  /** Tokens written into the Bedrock KV cache. 0 for non-Bedrock providers. */
+  cacheWriteTokens: number;
   createdAt: number;
   updatedAt: number;
   pinned?: boolean;
