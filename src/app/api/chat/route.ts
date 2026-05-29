@@ -67,6 +67,7 @@ type ChatRequest = {
     llamaUrl?: string;
     bedrockRegion?: string;
     systemPrompt?: string;
+    maxParallel?: number;
   };
 };
 

@@ -40,10 +40,12 @@ export type WorkerContext = {
     bedrockRegion?: string;
     systemPrompt?: string;
   };
-  /** Reference to the active worker sub-Agent. Set by the tool handler
-   *  when the worker starts; cleared when it finishes. The main job's
-   *  abort path reads this to propagate Stop to the worker. */
-  activeWorker: { abort: () => void } | null;
+  /** Map of currently running worker sub-Agents, keyed by delegationId.
+   *  Supports concurrent workers up to maxParallel. The main job's
+   *  abort path iterates this map to propagate Stop to all workers. */
+  activeWorkers: Map<string, { abort: () => void }>;
+  /** Maximum number of concurrent workers allowed. Default 1 (sequential). */
+  maxParallel: number;
   /** Request tool-call approval from the user through the manager's
    *  SSE stream. Returns the user's decision. */
   requestApproval: (
@@ -77,16 +79,46 @@ export function clearWorkerContext(sessionId: string): void {
  *  doesn't provide a custom one. */
 export const DEFAULT_WORKER_SYSTEM_PROMPT = `You are a worker agent assisting a manager AI. Complete the specific task given to you and report back clearly.
 
-- You have access to the same tools as the manager (read_file, bash, web_search, etc.).
-- Include your reasoning and methodology — the manager may ask how you reached your conclusion.
-- Be thorough but concise. Include relevant details, file paths, and code snippets.
-- Use markdown. Code in triple-backtick fences with language tags.
-- If you encounter errors, explain what went wrong and what you tried.
-- You are stateless — all context you need is in this prompt.`;
+You have access to the same tools as the manager (read_file, execute_command, web_search, etc.).
+You are stateless — all context you need is in this prompt.
+
+## Task type
+Your prompt may begin with one of these tags — adjust your approach accordingly:
+- [RESEARCH]  — web search, fact-gathering, summarisation. Be concise, cite sources, flag uncertainty.
+- [CODE]      — read/analyse/write code. Match existing style. Show targeted diffs not full files. Verify claims against actual source.
+- [WRITE]     — produce docs, reports, structured output. Use the exact format requested. No padding.
+- [VERIFY]    — check a claim against real files/data. State verdict first (CONFIRMED / REFUTED / INCONCLUSIVE), then evidence.
+If no tag is present, infer the type from the prompt and apply the closest approach.
+
+## Refinement
+If the prompt contains a "Previous attempt" section, you are being asked to improve on prior work.
+Read what was wrong or missing, then produce a better version — do not start from scratch.
+
+## Output format
+Structure every response as:
+
+### Summary  (max 150 words — dense and actionable)
+[Key findings the manager needs to act on. No filler.]
+
+### Details  (only if the task warrants it)
+[Full analysis, code snippets, file paths, evidence.]
+
+The manager reads Summary first. Keep it tight.
+
+## Self-check  (always include this section at the end)
+- Confidence: HIGH / MEDIUM / LOW
+- Completeness: YES / PARTIAL — [what is missing if partial]
+- Verified: did you check your findings against actual files/data/output? YES / NO`;
 
 /** System prompt augmentation injected into the manager's system prompt
- *  when a worker is configured. */
-export function workerSystemPromptAugmentation(modelName: string): string {
+ *  when a worker is configured. Reflects the actual maxParallel setting
+ *  so the manager LLM knows exactly what concurrency is allowed. */
+export function workerSystemPromptAugmentation(modelName: string, maxParallel: number = 1): string {
+  const concurrencyNote =
+    maxParallel === 1
+      ? `**Workers run sequentially.** Call \`delegate_to_worker\` one at a time — wait for the result before calling again. Do not call it multiple times in a single turn.`
+      : `**You can run up to ${maxParallel} workers in parallel.** You MAY call \`delegate_to_worker\` up to ${maxParallel} times in a single turn. Each worker is independent and stateless. Do not exceed ${maxParallel} concurrent delegations.`;
+
   return `
 
 ## Worker delegation
@@ -95,23 +127,31 @@ You have a worker model (\`${modelName}\`) available via \`delegate_to_worker\`.
 
 The worker has the same tools as you (read_file, bash, web_search, etc.). Its tool calls and output are visible in the chat — monitor its progress.
 
+${concurrencyNote}
+
 **Delegate when:**
 - Large code generation or refactoring
 - Analysis of multiple files or large datasets
 - Multi-step research tasks
-- Any task that is self-contained (doesn't need your conversation history)
+- Any self-contained task that does not need conversation history
 
 **Don't delegate:**
-- Simple one-step tasks — just do them yourself
+- Simple one-step tasks — do them yourself
 - Tasks requiring conversation context the worker doesn't have
-- User-facing responses — you write those
+- Final synthesis or user-facing responses — you write those
 
-**How to delegate:**
-- Call \`delegate_to_worker\` with a clear, specific prompt
-- Include file paths the worker should read (optional)
-- Review the worker's output before using it
-- If unsatisfied, re-delegate with refinements or handle it yourself
-- If the worker returns an error with partial output, you may use the partial output and complete the task yourself
+**How to write a good worker prompt:**
+- Prefix with task type: [RESEARCH], [CODE], [WRITE], or [VERIFY]
+- Be directive, not verbose — the worker has the same tools and can read files itself
+- Use the \`files\` parameter to pre-load files instead of pasting content inline
+- Good: "[CODE] Read src/lib/toolLoopPi.ts — extract the approval flow and isGated() logic"
+- Bad:  "Here is toolLoopPi.ts: [2000 tokens of content]... now analyse it"
+
+**Reviewing worker output:**
+- Every worker response ends with a Self-check section (Confidence, Completeness, Verified)
+- HIGH + complete  → use the Summary directly; read Details only if you need depth
+- LOW or PARTIAL   → use the \`refine\` parameter to improve without full re-delegation:
+    delegate_to_worker { prompt: "[what to fix]", refine: "[previous output]" }
 
 You are responsible for the final answer. The worker is a helper, not a replacement.`;
 }

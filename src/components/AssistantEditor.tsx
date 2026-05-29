@@ -450,6 +450,29 @@ export function AssistantEditor({
                     />
                   )}
                 </Field>
+
+                <Field label="Max parallel workers">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="number"
+                      min={1}
+                      max={8}
+                      value={form.worker.maxParallel ?? 1}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          worker: { ...form.worker!, maxParallel: Math.max(1, parseInt(e.target.value) || 1) },
+                        })
+                      }
+                      className="w-20 rounded border border-border bg-bg px-3 py-2 font-mono text-[13px] focus:border-accent focus:outline-none"
+                    />
+                    <span className="text-[11px] text-fg-subtle">
+                      {(form.worker.maxParallel ?? 1) === 1
+                        ? 'Sequential (safe for local models)'
+                        : `Up to ${form.worker.maxParallel} workers in parallel (fast cloud models)`}
+                    </span>
+                  </div>
+                </Field>
               </div>
             )}
           </div>

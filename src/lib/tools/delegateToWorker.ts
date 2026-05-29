@@ -64,7 +64,7 @@ export type WorkerLogEntry = {
 };
 
 /** Hard cap on worker tool-calling turns to prevent infinite loops. */
-const WORKER_MAX_TURNS = 50;
+const WORKER_MAX_TURNS = 100;
 
 // ── Tool spec ──────────────────────────────────────────────────────────
 
@@ -91,6 +91,14 @@ export const delegateToWorkerSpec: ToolSpec = {
           "Array of file paths the worker should read. Each item is a " +
           "session-relative path (e.g. 'uploads/data.csv'). Optional.",
       },
+      refine: {
+        type: "string",
+        description:
+          "Previous worker output to improve. When set, the worker sees its " +
+          "prior attempt alongside the new prompt and produces a targeted " +
+          "refinement instead of starting from scratch. Use when Self-check " +
+          "shows LOW confidence or PARTIAL completeness.",
+      },
     },
     required: ["prompt"],
   },
@@ -116,6 +124,22 @@ export const delegateToWorkerSpec: ToolSpec = {
           "The assistant may not have a worker configured.",
       );
     }
+
+    // Enforce maxParallel cap before spinning up a new worker.
+    const maxParallel = wc.maxParallel ?? 1;
+    if (wc.activeWorkers.size >= maxParallel) {
+      return err(
+        "worker_at_capacity",
+        `All ${maxParallel} worker slot(s) are currently busy. ` +
+          (maxParallel === 1
+            ? "Workers run sequentially — wait for the current worker to finish before delegating again."
+            : `Wait for a worker to finish before delegating more. (maxParallel=${maxParallel})`),
+      );
+    }
+
+    // Unique id for this delegation — used for abort-identity checks
+    // and to tag worker SSE events so the UI can show parallel workers distinctly.
+    const delegationId = Math.random().toString(36).slice(2, 10);
 
     // ── Resolve worker model ──────────────────────────────────────────
     const workerProvider = wc.workerConfig.provider ?? "ollama";
@@ -167,9 +191,13 @@ export const delegateToWorkerSpec: ToolSpec = {
     const workerSystemPrompt =
       wc.workerConfig.systemPrompt || DEFAULT_WORKER_SYSTEM_PROMPT;
 
-    const fullUserPrompt = fileContents
-      ? `${prompt}\n\n${fileContents}`
-      : prompt;
+    // If the manager is asking for a refinement, prepend the previous
+    // attempt so the worker can improve on it without starting over.
+    const refineText = typeof args.refine === "string" && args.refine.trim()
+      ? `## Previous attempt (needs improvement)\n${args.refine.trim()}\n\n## What to fix / improve\n`
+      : "";
+
+    const fullUserPrompt = [refineText + prompt, fileContents].filter(Boolean).join("\n\n");
 
     // ── Create worker Agent ────────────────────────────────────────────
     const agent = new Agent({
@@ -190,14 +218,14 @@ export const delegateToWorkerSpec: ToolSpec = {
         const { toolCall } = c;
         // Implicit tools (remember, ask_user, etc.) are never gated.
         if (IMPLICIT_TOOL_NAMES.has(toolCall.name)) return undefined;
-        // Check against the same approval rules as the manager.
-        const gated = !workerApprovalState.autoApproveTools.includes(
-          toolCall.name,
-        );
-        const requireApproval = workerApprovalState.requireApproval.includes(
-          toolCall.name,
-        );
-        if (!gated && !requireApproval) return undefined;
+        // Mirror the manager's isGated() logic: autoApproveTools is the ONLY
+        // gate. requireApproval is the initial "needs first-time consent" list —
+        // once the user has approved a tool (it lands in autoApproveTools) the
+        // worker must NOT re-ask. Using requireApproval as a second condition
+        // caused the worker to always prompt because DEFAULT_REQUIRE_APPROVAL
+        // is ALL_TOOLS, making !requireApproval permanently false.
+        if (workerApprovalState.autoApproveTools.includes(toolCall.name))
+          return undefined;
 
         // Send approval request through the manager's SSE stream.
         const decision = await wc.requestApproval(
@@ -229,7 +257,7 @@ export const delegateToWorkerSpec: ToolSpec = {
     });
 
     // ── Register for abort propagation ─────────────────────────────────
-    wc.activeWorker = agent;
+    wc.activeWorkers.set(delegationId, agent);
 
     // ── Worker event subscriber ────────────────────────────────────────
     const log: WorkerLogEntry[] = [];
@@ -241,8 +269,8 @@ export const delegateToWorkerSpec: ToolSpec = {
     let workerError: string | null = null;
 
     const unsub = agent.subscribe((event: AgentEvent) => {
-      // Check for abort from outside
-      if (wc.activeWorker !== agent) {
+      // Check for abort from outside (manager stopped, or session ended).
+      if (!wc.activeWorkers.has(delegationId)) {
         aborted = true;
         agent.abort();
         return;
@@ -254,6 +282,7 @@ export const delegateToWorkerSpec: ToolSpec = {
           sse(wc.controller, {
             type: "content",
             source: "worker",
+            workerId: delegationId,
             delta: me.delta,
           });
           contentChunk += me.delta;
@@ -261,6 +290,7 @@ export const delegateToWorkerSpec: ToolSpec = {
           sse(wc.controller, {
             type: "thinking",
             source: "worker",
+            workerId: delegationId,
             delta: me.delta,
           });
         }
@@ -304,6 +334,7 @@ export const delegateToWorkerSpec: ToolSpec = {
         sse(wc.controller, {
           type: "tool_call",
           source: "worker",
+          workerId: delegationId,
           name: event.toolName,
           arguments: event.args,
         });
@@ -351,7 +382,7 @@ export const delegateToWorkerSpec: ToolSpec = {
 
     // ── Clean up ───────────────────────────────────────────────────────
     unsub();
-    wc.activeWorker = null;
+    wc.activeWorkers.delete(delegationId);
 
     // ── Build result ───────────────────────────────────────────────────
     if (aborted) {
