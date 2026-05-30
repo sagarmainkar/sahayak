@@ -1291,6 +1291,34 @@ export default function Chat({ assistantId, sessionId: initialSessionId }: Props
 
     const keep = messages.slice(-4);
     const older = messages.slice(0, messages.length - 4);
+
+    // ── Preserve uploaded file knowledge across compaction ────
+    // The summarizer may omit file references. We build a
+    // programmatic section so the agent always knows what files
+    // were uploaded before the compaction point.
+    const imageNames = new Set<string>();
+    const docNames = new Set<string>();
+    for (const m of older) {
+      for (const a of m.attachments ?? []) {
+        const label = a.originalName ?? a.filename ?? "unknown";
+        if (a.type === "image") imageNames.add(label);
+        else if (a.type === "document") docNames.add(label);
+      }
+    }
+    const fileBlock =
+      imageNames.size > 0 || docNames.size > 0
+        ? [
+            "## Uploaded Files",
+            ...(imageNames.size > 0
+              ? [`- Images: ${[...imageNames].join(", ")}`]
+              : []),
+            ...(docNames.size > 0
+              ? [`- Documents: ${[...docNames].join(", ")}`]
+              : []),
+            "",
+          ].join("\n")
+        : "";
+
     // Budget-aware compaction — everything scales from ctxMax so we
     // never produce a summary that itself doesn't fit. Three knobs:
     //   - summaryBudget: 20% of ctxMax, floored at 6k (matches
@@ -1482,7 +1510,7 @@ EXCLUDE: greetings, pleasantries, "thanks", system memory nudges. If the input c
       const compactMsg: ChatMessage = {
         id: placeholderId,
         role: "system",
-        content: `Earlier conversation summarised — ${older.length} turns → 1 note\n\n${clean}`,
+        content: `Earlier conversation summarised — ${older.length} turns → 1 note\n\n${fileBlock ? fileBlock + "\n\n" : ""}${clean}`,
         createdAt: Date.now(),
       };
       const next = [compactMsg, ...keep];
