@@ -1,4 +1,5 @@
 import { nanoid } from "nanoid";
+import { currentDatetimeContext } from "@/lib/datetime";
 import { Agent } from "@mariozechner/pi-agent-core";
 import type {
   AgentEvent,
@@ -147,7 +148,9 @@ async function runJob(input: JobRunnerInput): Promise<void> {
 
   const agent = new Agent({
     initialState: {
-      systemPrompt: resolvedSystemPrompt,
+      systemPrompt: `${currentDatetimeContext()}
+
+${resolvedSystemPrompt}`,
       model: piModel,
       tools,
       thinkingLevel: piThinkLevel(think),
